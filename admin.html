@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Rising Capital · 管理后台（本地使用）</title>
+  <meta name="robots" content="noindex, nofollow"/>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+
+  <!-- ══ Header ══════════════════════════════════════ -->
+  <header class="site-header">
+    <a class="header-logo" href="index.html">
+      <div class="logo-mark">RC</div>
+      <span class="logo-text">Rising Capital</span>
+    </a>
+    <span class="header-tagline">管理后台</span>
+  </header>
+
+  <!-- ══ Admin Form ══════════════════════════════════ -->
+  <div class="admin-wrapper">
+
+    <!-- Notice -->
+    <div class="admin-notice">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+        <line x1="12" y1="9" x2="12" y2="13"/>
+        <line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+      <span>此页面仅供本地使用，请勿部署至公开路径。生成的JSON条目需手动复制至 <code style="background:#FDE68A;padding:1px 5px;border-radius:3px;">data/posts.json</code> 文件中。</span>
+    </div>
+
+    <!-- ① 基本信息 -->
+    <div class="admin-card">
+      <h2><span>1</span> 基本信息</h2>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="post-date">日期</label>
+          <input type="date" id="post-date"/>
+        </div>
+        <div class="form-group">
+          <label for="post-verdict">市场判断</label>
+          <select id="post-verdict">
+            <option value="偏多">偏多</option>
+            <option value="偏空">偏空</option>
+            <option value="中性" selected>中性</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- ② 原始推文 -->
+    <div class="admin-card">
+      <h2><span>2</span> 原始推文（参考，不公开显示）</h2>
+      <div class="form-row full">
+        <div class="form-group">
+          <label for="source-post">粘贴完整推文文本</label>
+          <textarea
+            id="source-post"
+            placeholder="粘贴原始推文内容，可用于「自动转换」生成要点…"
+            style="min-height: 110px;"
+          ></textarea>
+        </div>
+      </div>
+      <div class="admin-actions" style="margin-top:0;">
+        <button type="button" class="btn-secondary" onclick="autoConvertTweet()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+          自动转换推文为要点
+        </button>
+      </div>
+    </div>
+
+    <!-- ③ 要点列表 -->
+    <div class="admin-card">
+      <h2><span>3</span> 要点列表</h2>
+      <div class="dynamic-list" id="bullets-list">
+        <!-- rows injected by admin.js -->
+      </div>
+      <button type="button" class="btn-add-row" onclick="addBulletRow()" style="margin-top:10px;">
+        + 添加要点
+      </button>
+    </div>
+
+    <!-- ④ 图表 -->
+    <div class="admin-card">
+      <h2><span>4</span> 图表</h2>
+      <p style="font-size:12px;color:var(--grey-text);margin-bottom:14px;">
+        将图表文件手动放入 <code style="background:var(--grey-bg);padding:1px 5px;border-radius:3px;">assets/charts/</code> 目录，然后在此填写文件名。
+      </p>
+      <div class="dynamic-list" id="charts-list">
+        <!-- rows injected by admin.js -->
+      </div>
+      <button type="button" class="btn-add-row" onclick="addChartRow()" style="margin-top:10px;">
+        + 添加图表
+      </button>
+    </div>
+
+    <!-- ⑤ 关键指标 -->
+    <div class="admin-card">
+      <h2><span>5</span> 关键指标</h2>
+      <p style="font-size:12px;color:var(--grey-text);margin-bottom:14px;">
+        填写当日快照数据，后续接入API后将自动更新。
+      </p>
+      <div class="indicators-grid">
+        <div class="form-group">
+          <label for="ind-price">BTC价格</label>
+          <input type="text" id="ind-price" placeholder="例：107,420"/>
+        </div>
+        <div class="form-group">
+          <label for="ind-funding">资金费率（8h）</label>
+          <input type="text" id="ind-funding" placeholder="例：+0.018%"/>
+        </div>
+        <div class="form-group">
+          <label for="ind-etf">ETF净流入</label>
+          <input type="text" id="ind-etf" placeholder="例：+$485M"/>
+        </div>
+        <div class="form-group">
+          <label for="ind-oi">未平仓合约（OI）</label>
+          <input type="text" id="ind-oi" placeholder="例：$18.1B"/>
+        </div>
+      </div>
+    </div>
+
+    <!-- ⑥ 生成JSON -->
+    <div class="admin-card">
+      <h2><span>6</span> 生成JSON条目</h2>
+      <div class="admin-actions" style="margin-bottom:16px;">
+        <button type="button" class="btn-primary" onclick="generateJSON()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z"/>
+            <polyline points="14 2 14 8 20 8"/>
+          </svg>
+          生成JSON条目
+        </button>
+      </div>
+
+      <div class="json-output-wrap">
+        <textarea
+          id="json-output"
+          class="json-output"
+          readonly
+          placeholder='{
+  "id": "...",
+  "date": "...",
+  ...
+}'
+        ></textarea>
+        <button type="button" class="json-copy-btn" id="copy-json-btn" onclick="copyJSON()">
+          复制
+        </button>
+      </div>
+
+      <div style="margin-top:16px;padding:14px 16px;background:var(--grey-bg);border-radius:8px;border:1px solid var(--grey-border);">
+        <p style="font-size:12.5px;color:var(--navy);font-weight:600;margin-bottom:8px;">添加到 posts.json 的步骤：</p>
+        <ol style="font-size:12px;color:var(--grey-text);padding-left:18px;line-height:2;">
+          <li>点击「生成JSON条目」并复制上方内容</li>
+          <li>打开 <code style="background:#e5e7eb;padding:1px 5px;border-radius:3px;">data/posts.json</code></li>
+          <li>在数组的 <strong>最开头</strong>（第一个 <code style="background:#e5e7eb;padding:1px 5px;border-radius:3px;">[</code> 之后）粘贴该条目，末尾加逗号</li>
+          <li>将图表文件放入 <code style="background:#e5e7eb;padding:1px 5px;border-radius:3px;">assets/charts/</code></li>
+          <li>保存并 git push，GitHub Pages 自动更新</li>
+        </ol>
+      </div>
+    </div>
+
+  </div><!-- /.admin-wrapper -->
+
+  <footer class="site-footer">
+    <div>Rising Capital 管理后台 · 仅供本地使用</div>
+  </footer>
+
+  <script src="admin.js"></script>
+</body>
+</html>
