@@ -615,19 +615,10 @@ body {
   color: rgba(255,255,255,0.7);
 }
 
-.footer-sources {
-  display: flex;
-  justify-content: center;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin-bottom: 4px;
-}
-
-.footer-sources a {
+.site-footer a {
   color: var(--blue);
   text-decoration: none;
   font-weight: 600;
-  font-size: 11px;
 }
 
 /* ── Admin Page ──────────────────────────────────────── */
