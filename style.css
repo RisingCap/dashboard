@@ -1,6 +1,6 @@
 /* =====================================================
-   Rising Capital Dashboard — style.css
-   HTX brand palette: #F0A12C orange, #0B1426 navy, #FFFFFF white
+   HTX Research Dashboard — style.css
+   HTX palette: #2563EB blue, #0B1426 navy, #FFFFFF white
    ===================================================== */
 
 *, *::before, *::after {
@@ -10,8 +10,9 @@
 }
 
 :root {
-  --orange:      #F0A12C;
-  --orange-dark: #D8891A;
+  --blue:        #2563EB;
+  --blue-dark:   #1D4ED8;
+  --blue-light:  #EFF6FF;
   --navy:        #0B1426;
   --navy-mid:    #162035;
   --white:       #FFFFFF;
@@ -50,7 +51,7 @@ body {
   position: sticky;
   top: 0;
   z-index: 100;
-  border-bottom: 2px solid var(--orange);
+  border-bottom: 2px solid var(--blue);
 }
 
 .header-logo {
@@ -63,15 +64,15 @@ body {
 .logo-mark {
   width: 32px;
   height: 32px;
-  background: var(--orange);
+  background: var(--blue);
   border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 800;
-  font-size: 14px;
-  color: var(--navy);
-  letter-spacing: -0.5px;
+  font-size: 11px;
+  color: var(--white);
+  letter-spacing: 0px;
 }
 
 .logo-text {
@@ -116,23 +117,63 @@ body {
   background: var(--grey-border);
 }
 
-/* ── Verdict Badge ──────────────────────────────────── */
+/* ── Verdict Meter (5-level) ────────────────────────── */
 
+.verdict-meter {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.meter-bar {
+  display: flex;
+  gap: 3px;
+}
+
+.meter-seg {
+  width: 22px;
+  height: 8px;
+  border-radius: 3px;
+  background: var(--grey-border);
+  transition: background 0.2s;
+}
+
+/* Level colours */
+.meter-seg.lvl-1 { background: #DC2626; }   /* 极度看空 deep red    */
+.meter-seg.lvl-2 { background: #F97316; }   /* 偏空     orange-red  */
+.meter-seg.lvl-3 { background: #9CA3AF; }   /* 中性     grey        */
+.meter-seg.lvl-4 { background: #4ADE80; }   /* 偏多     light green */
+.meter-seg.lvl-5 { background: #16A34A; }   /* 极度看多 deep green  */
+
+.meter-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-align: center;
+}
+
+.meter-label.lvl-1 { color: #DC2626; }
+.meter-label.lvl-2 { color: #F97316; }
+.meter-label.lvl-3 { color: #6B7280; }
+.meter-label.lvl-4 { color: #16A34A; }
+.meter-label.lvl-5 { color: #16A34A; }
+
+/* Legacy badge — kept for archive small cards */
 .verdict-badge {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 11px;
+  padding: 3px 9px;
   border-radius: 20px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.3px;
 }
 
 .verdict-badge::before {
   content: "";
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: currentColor;
 }
@@ -140,6 +181,8 @@ body {
 .verdict-green  { background: #DCFCE7; color: var(--green); }
 .verdict-red    { background: #FEE2E2; color: var(--red); }
 .verdict-neutral{ background: #F3F4F6; color: var(--neutral); }
+.verdict-very-bullish { background: #DCFCE7; color: #16A34A; }
+.verdict-very-bearish { background: #FEE2E2; color: #DC2626; }
 
 /* ── Hero Card ──────────────────────────────────────── */
 
@@ -210,7 +253,7 @@ body {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--orange);
+  background: var(--blue);
 }
 
 /* ── Indicators Strip ────────────────────────────────── */
@@ -325,7 +368,7 @@ body {
 
 .chart-source {
   font-size: 10px;
-  color: var(--orange);
+  color: var(--blue);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.4px;
@@ -352,7 +395,7 @@ body {
 
 .archive-card:hover {
   box-shadow: 0 4px 16px rgba(11,20,38,0.10);
-  border-color: var(--orange);
+  border-color: var(--blue);
 }
 
 .archive-card-header {
@@ -473,7 +516,7 @@ body {
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: var(--orange);
+  background: var(--blue);
 }
 
 .archive-body-right {
@@ -548,7 +591,7 @@ body {
   width: 32px;
   height: 32px;
   border: 3px solid var(--grey-border);
-  border-top-color: var(--orange);
+  border-top-color: var(--blue);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
@@ -581,7 +624,7 @@ body {
 }
 
 .footer-sources a {
-  color: var(--orange);
+  color: var(--blue);
   text-decoration: none;
   font-weight: 600;
   font-size: 11px;
@@ -639,7 +682,7 @@ body {
   justify-content: center;
   width: 22px;
   height: 22px;
-  background: var(--orange);
+  background: var(--blue);
   color: var(--navy);
   border-radius: 50%;
   font-size: 11px;
@@ -687,7 +730,7 @@ body {
 .form-group input:focus,
 .form-group select:focus,
 .form-group textarea:focus {
-  border-color: var(--orange);
+  border-color: var(--blue);
   box-shadow: 0 0 0 3px rgba(240,161,44,0.15);
 }
 
@@ -726,7 +769,7 @@ body {
 
 .dynamic-row input:focus,
 .dynamic-row select:focus {
-  border-color: var(--orange);
+  border-color: var(--blue);
   box-shadow: 0 0 0 3px rgba(240,161,44,0.15);
 }
 
@@ -784,7 +827,7 @@ body {
 }
 
 .chart-row-sub input:focus {
-  border-color: var(--orange);
+  border-color: var(--blue);
   box-shadow: 0 0 0 3px rgba(240,161,44,0.15);
 }
 
@@ -800,7 +843,7 @@ body {
 }
 
 .chart-row-sub select:focus {
-  border-color: var(--orange);
+  border-color: var(--blue);
   box-shadow: 0 0 0 3px rgba(240,161,44,0.15);
 }
 
@@ -819,8 +862,8 @@ body {
 }
 
 .btn-add-row:hover {
-  border-color: var(--orange);
-  color: var(--orange);
+  border-color: var(--blue);
+  color: var(--blue);
 }
 
 /* ── Indicator inputs ────────────────────────────────── */
@@ -841,7 +884,7 @@ body {
 }
 
 .btn-primary {
-  background: var(--orange);
+  background: var(--blue);
   color: var(--navy);
   border: none;
   border-radius: 8px;
@@ -857,7 +900,7 @@ body {
 }
 
 .btn-primary:hover {
-  background: var(--orange-dark);
+  background: var(--blue-dark);
 }
 
 .btn-secondary {
@@ -878,8 +921,8 @@ body {
 
 .btn-secondary:hover {
   background: var(--white);
-  border-color: var(--orange);
-  color: var(--orange);
+  border-color: var(--blue);
+  color: var(--blue);
 }
 
 /* ── JSON Output ─────────────────────────────────────── */

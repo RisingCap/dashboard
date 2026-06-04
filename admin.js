@@ -113,7 +113,13 @@ function generateJSON() {
   }
 
   // Verdict color mapping
-  const colorMap = { "偏多": "green", "偏空": "red", "中性": "neutral" };
+  const colorMap = {
+    "极度看多": "very_bullish",
+    "偏多":    "green",
+    "中性":    "neutral",
+    "偏空":    "red",
+    "极度看空": "very_bearish"
+  };
   const verdictColor = colorMap[verdict] || "neutral";
 
   // Bullets

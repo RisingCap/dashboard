@@ -26,9 +26,42 @@ function formatDate(iso) {
   });
 }
 
-function verdictClass(color) {
-  const map = { green: "verdict-green", red: "verdict-red", neutral: "verdict-neutral" };
-  return map[color] || "verdict-neutral";
+// Maps verdict string → level 1–5
+function verdictLevel(verdict) {
+  const map = {
+    "极度看空": 1,
+    "偏空":    2,
+    "中性":    3,
+    "偏多":    4,
+    "极度看多": 5,
+    // legacy color keys
+    "red":     2,
+    "neutral": 3,
+    "green":   4,
+    "very_bearish": 1,
+    "very_bullish": 5
+  };
+  return map[verdict] || map[verdict] || 3;
+}
+
+// Build the 5-segment meter HTML
+function verdictMeter(verdict) {
+  const level = verdictLevel(verdict);
+  const segs = [1, 2, 3, 4, 5].map(i =>
+    `<div class="meter-seg${i <= level ? ' lvl-' + level : ''}"></div>`
+  ).join("");
+  return `
+    <div class="verdict-meter">
+      <div class="meter-bar">${segs}</div>
+      <div class="meter-label lvl-${level}">${verdict}</div>
+    </div>`;
+}
+
+// Small badge for archive cards
+function verdictClass(verdict) {
+  const level = verdictLevel(verdict);
+  const map = { 1: "verdict-very-bearish", 2: "verdict-red", 3: "verdict-neutral", 4: "verdict-green", 5: "verdict-very-bullish" };
+  return map[level] || "verdict-neutral";
 }
 
 function chartImgOrPlaceholder(filename, cssClass = "") {
@@ -105,7 +138,7 @@ function renderHero(post) {
         <div class="hero-left">
           <div class="hero-meta">
             <span class="hero-date">${formatDate(post.date)}</span>
-            <span class="verdict-badge ${verdictClass(post.verdict_color)}">${post.verdict}</span>
+            ${verdictMeter(post.verdict)}
           </div>
           <div class="hero-title">${post.title}</div>
           <ul class="hero-bullets">
@@ -162,7 +195,7 @@ function renderArchiveCard(post) {
         <div class="archive-meta">
           <div class="archive-top">
             <span class="archive-date">${formatDate(post.date)}</span>
-            <span class="verdict-badge ${verdictClass(post.verdict_color)}">${post.verdict}</span>
+            <span class="verdict-badge ${verdictClass(post.verdict)}">${post.verdict}</span>
           </div>
           <div class="archive-bullets-preview">${previewBullets}</div>
         </div>

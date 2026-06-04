@@ -14,17 +14,17 @@
   "source_post": "六月二日出现本轮最大规模多头爆仓，单日清算9,459枚比特币，为去年十月十日事件以来最高。未平仓合约从峰值28.5万枚小幅回落至27.7万枚，资金费率首次出现转负迹象。\n当前现货成交笔数跳升至843,685K，为窗口期内最高值，同时空头爆仓开始出现。短期结构出现初步反转信号，但仍需持续观察。\nSTRC现报94.65美元，跌至今年二月低点区间。历史上十一月及二月两次下探后均在除息日前收复100美元。Saylor已于五月底出售32枚比特币用于支付股息，当前BTC均价成本75,699美元已处于浮亏状态。\n加密货币恐慌贪婪指数降至12，为极度恐慌区间。历史上该读数仅在2020年三月、2022年六月及十一月出现过，每次均为短期底部区域。",
   "charts": [
     {
-      "filename": "2026-06-04-market-structure.png",
+      "filename": "2026-06-04-market-structure.png.jpg",
       "caption": "",
       "source": "Velo"
     },
     {
-      "filename": "2026-06-04-STRC.png",
+      "filename": "2026-06-04-STRC.png.jpg",
       "caption": "",
       "source": "其他"
     },
     {
-      "filename": "2026-06-04-F&G.png",
+      "filename": "2026-06-04-FG.png.jpg",
       "caption": "",
       "source": "其他"
     }
@@ -35,104 +35,5 @@
     "etf_flow": "-396.60M",
     "oi": "277.158k"
   }
-},
-  {
-    "id": "2026-06-04",
-    "date": "2026-06-04",
-    "title": "BTC市场参与者日报",
-    "verdict": "偏多",
-    "verdict_color": "green",
-    "bullets": [
-      "ETF资金净流入 +$485M，BlackRock IBIT单日吸筹 +$312M，连续4日正流入",
-      "永续合约资金费率 +0.018%（8小时），多头轻度拥挤，OI环比+3.2%至$18.1B",
-      "LTH持仓量占流通比例升至74.6%，近7日无显著向交易所转移迹象",
-      "矿工BTC储备小幅下降 -1,240 BTC，哈希价格$58.4/TH/日，抛压可控",
-      "CME未平仓合约 $11.2B，大型投机者净多头头寸连续第2周增加"
-    ],
-    "source_post": "ETF FLOWS: $485M net inflow. BlackRock IBIT +$312M. Fourth consecutive positive day. LTH supply ratio at 74.6% — no meaningful exchange inflows from this cohort. Funding elevated at +0.018% but OI expansion is moderate. Miners selling into strength, not panic. CME longs adding for second straight week. Net pressure: buying.",
-    "charts": [
-      {
-        "filename": "2026-06-04-etf-flow.png",
-        "caption": "ETF资金日流向（SoSoValue）",
-        "source": "SoSoValue"
-      },
-      {
-        "filename": "2026-06-04-funding-oi.png",
-        "caption": "永续合约资金费率与未平仓合约（CoinGlass）",
-        "source": "CoinGlass"
-      }
-    ],
-    "indicators": {
-      "btc_price": "107,420",
-      "funding_rate": "+0.018%",
-      "etf_flow": "+$485M",
-      "oi": "$18.1B"
-    }
-  },
-  {
-    "id": "2026-06-03",
-    "date": "2026-06-03",
-    "title": "BTC市场参与者日报",
-    "verdict": "偏多",
-    "verdict_color": "green",
-    "bullets": [
-      "ETF资金净流入 +$320M，连续3日正流入，Fidelity FBTC贡献 +$148M",
-      "永续合约资金费率 +0.012%，多头轻度拥挤，OI $17.6B 持平",
-      "LTH未实现亏损比例回升至8.3%，历史底部区间，历史上此位置后续12周平均涨幅 +47%",
-      "矿工储备连续5日净流出，日均约 -980 BTC，对应收入压力约$105M/月",
-      "期权25日偏斜度 +3.2%，看涨期权溢价回归，市场隐含向上偏向"
-    ],
-    "source_post": "ETF FLOWS: $320M net inflow. Fidelity FBTC $148M. Third consecutive positive day. LTH unrealized loss ratio at 8.3% — historically a floor zone. Funding +0.012%, mild crowding. Miner reserves leaking ~980 BTC/day but within normal operational range. Options market pricing upside skew. Net pressure: buying.",
-    "charts": [
-      {
-        "filename": "2026-06-03-etf-flow.png",
-        "caption": "ETF资金流向（SoSoValue）",
-        "source": "SoSoValue"
-      },
-      {
-        "filename": "2026-06-03-lth-loss.png",
-        "caption": "LTH未实现亏损比例（Glassnode）",
-        "source": "Glassnode"
-      }
-    ],
-    "indicators": {
-      "btc_price": "105,890",
-      "funding_rate": "+0.012%",
-      "etf_flow": "+$320M",
-      "oi": "$17.6B"
-    }
-  },
-  {
-    "id": "2026-06-02",
-    "date": "2026-06-02",
-    "title": "BTC市场参与者日报",
-    "verdict": "中性",
-    "verdict_color": "neutral",
-    "bullets": [
-      "ETF资金净流出 -$42M，BlackRock IBIT轻微流出 -$18M，9日连流入后首现逆转",
-      "永续合约资金费率 +0.003%，接近中性，OI $17.4B，市场方向感不明",
-      "LTH持仓占比74.3%，稳定无变化，链上转移量低于30日均值22%",
-      "矿工哈希价格降至 $55.1/TH/日，难度调整预期上调 +2.1%，成本压力温和上升",
-      "CTA模型处于20日高点以下，无系统性做多信号，观望状态"
-    ],
-    "source_post": "ETF FLOWS: -$42M net outflow. First reversal after 9 consecutive positive days. Funding near flat at +0.003%. LTH supply stable, no distribution signal. Hashprice at $55.1 — rising difficulty will compress miner margins further. CTA models not triggered. Mixed signals across all participant groups. Net pressure: neutral.",
-    "charts": [
-      {
-        "filename": "2026-06-02-etf-flow.png",
-        "caption": "ETF资金流向（SoSoValue）",
-        "source": "SoSoValue"
-      },
-      {
-        "filename": "2026-06-02-hashprice.png",
-        "caption": "矿工哈希价格走势（Hashrate Index）",
-        "source": "Hashrate Index"
-      }
-    ],
-    "indicators": {
-      "btc_price": "104,210",
-      "funding_rate": "+0.003%",
-      "etf_flow": "-$42M",
-      "oi": "$17.4B"
-    }
-  }
+}
 ]
