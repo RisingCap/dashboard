@@ -15,7 +15,10 @@
       <div class="logo-mark">HTX</div>
       <span class="logo-text">HTX Research</span>
     </a>
-    <span class="header-tagline">管理后台</span>
+    <nav class="header-nav">
+      <a href="index.html" style="padding:6px 14px;font-size:13px;color:rgba(255,255,255,0.55);text-decoration:none;border-radius:6px;transition:background 0.15s,color 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.08)';this.style.color='#fff'" onmouseout="this.style.background='';this.style.color='rgba(255,255,255,0.55)'">← 返回仪表盘</a>
+    </nav>
+    <span style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.35);letter-spacing:0.5px;margin-left:auto;">管理后台 · 本地使用</span>
   </header>
 
   <!-- ══ Admin Form ══════════════════════════════════ -->
@@ -28,7 +31,7 @@
         <line x1="12" y1="9" x2="12" y2="13"/>
         <line x1="12" y1="17" x2="12.01" y2="17"/>
       </svg>
-      <span>此页面仅供本地使用，请勿部署至公开路径。生成的JSON条目需手动复制至 <code style="background:#FDE68A;padding:1px 5px;border-radius:3px;">data/posts.json</code> 文件中。</span>
+      <span>此页面仅供本地使用，请勿部署至公开路径。各表单生成的JSON需手动保存至对应文件：<code style="background:#FDE68A;padding:1px 5px;border-radius:3px;">posts.json</code> · <code style="background:#FDE68A;padding:1px 5px;border-radius:3px;">etf.json</code> · <code style="background:#FDE68A;padding:1px 5px;border-radius:3px;">market_brief.json</code> · <code style="background:#FDE68A;padding:1px 5px;border-radius:3px;">metrics_snapshot.json</code></span>
     </div>
 
     <!-- ① 基本信息 -->
@@ -348,7 +351,7 @@
   </div><!-- /.admin-wrapper -->
 
   <footer class="site-footer">
-    <div>HTX Research 管理后台 · 仅供本地使用</div>
+    <div>HTX Research 管理后台 · 仅供本地使用 · <a href="index.html" style="color:var(--blue);">返回仪表盘</a></div>
   </footer>
 
   <script src="admin.js"></script>
