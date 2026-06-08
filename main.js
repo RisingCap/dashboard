@@ -71,6 +71,7 @@ function chartImgOrPlaceholder(filename, cssClass = "") {
       <img
         src="${src}"
         alt="${filename}"
+        onclick="openLightbox('${src}')"
         onerror="this.closest('.chart-img-wrap').innerHTML = chartPlaceholderHTML()"
         loading="lazy"
       />
@@ -178,6 +179,7 @@ function renderArchiveCard(post) {
     <div class="archive-chart-item">
       <div class="archive-chart-img">
         <img src="${CHARTS_BASE + c.filename}" alt=""
+          onclick="openLightbox('${CHARTS_BASE + c.filename}')"
           onerror="this.style.opacity='0'"
           loading="lazy"/>
       </div>

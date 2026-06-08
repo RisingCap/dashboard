@@ -567,6 +567,59 @@ body {
   border-top: 1px solid var(--grey-border);
 }
 
+/* ── Lightbox ────────────────────────────────────────── */
+
+.chart-img-wrap img,
+.archive-chart-img img {
+  cursor: zoom-in;
+}
+
+.lightbox-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.88);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.lightbox-overlay.active {
+  display: flex;
+}
+
+.lightbox-img {
+  max-width: 100%;
+  max-height: 90vh;
+  border-radius: 8px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+  object-fit: contain;
+}
+
+.lightbox-close {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  background: rgba(255,255,255,0.15);
+  border: none;
+  color: #fff;
+  font-size: 28px;
+  line-height: 1;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.lightbox-close:hover {
+  background: rgba(255,255,255,0.3);
+}
+
 /* ── Empty / Loading States ──────────────────────────── */
 
 .empty-state {
