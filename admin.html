@@ -55,32 +55,9 @@
       </div>
     </div>
 
-    <!-- ② 原始推文 -->
+    <!-- ② 要点列表 -->
     <div class="admin-card">
-      <h2><span>2</span> 原始推文（参考，不公开显示）</h2>
-      <div class="form-row full">
-        <div class="form-group">
-          <label for="source-post">粘贴完整推文文本</label>
-          <textarea
-            id="source-post"
-            placeholder="粘贴原始推文内容，可用于「自动转换」生成要点…"
-            style="min-height: 110px;"
-          ></textarea>
-        </div>
-      </div>
-      <div class="admin-actions" style="margin-top:0;">
-        <button type="button" class="btn-secondary" onclick="autoConvertTweet()">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-          </svg>
-          自动转换推文为要点
-        </button>
-      </div>
-    </div>
-
-    <!-- ③ 要点列表 -->
-    <div class="admin-card">
-      <h2><span>3</span> 要点列表</h2>
+      <h2><span>2</span> 要点列表</h2>
       <div class="dynamic-list" id="bullets-list">
         <!-- rows injected by admin.js -->
       </div>
@@ -91,7 +68,7 @@
 
     <!-- ④ 图表 -->
     <div class="admin-card">
-      <h2><span>4</span> 图表</h2>
+      <h2><span>3</span> 图表</h2>
       <p style="font-size:12px;color:var(--grey-text);margin-bottom:14px;">
         将图表文件手动放入 <code style="background:var(--grey-bg);padding:1px 5px;border-radius:3px;">assets/charts/</code> 目录，然后在此填写文件名。
       </p>
@@ -105,7 +82,7 @@
 
     <!-- ⑤ 关键指标 -->
     <div class="admin-card">
-      <h2><span>5</span> 关键指标</h2>
+      <h2><span>4</span> 关键指标</h2>
       <p style="font-size:12px;color:var(--grey-text);margin-bottom:14px;">
         填写当日快照数据，后续接入API后将自动更新。
       </p>
@@ -131,7 +108,7 @@
 
     <!-- ⑥ 生成JSON -->
     <div class="admin-card">
-      <h2><span>6</span> 生成JSON条目</h2>
+      <h2><span>5</span> 生成JSON条目</h2>
       <div class="admin-actions" style="margin-bottom:16px;">
         <button type="button" class="btn-primary" onclick="generateJSON()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -214,6 +191,18 @@
     <!-- ⑧ 市场简报更新 -->
     <div class="admin-card">
       <h2><span>8</span> 市场简报更新 <span style="font-size:10px;background:var(--blue);color:#fff;border-radius:10px;padding:2px 8px;font-weight:600;margin-left:4px;">market_brief.json</span></h2>
+
+      <!-- Auto-generate from latest post -->
+      <div class="admin-actions" style="margin-bottom:18px;">
+        <button type="button" class="btn-secondary" id="brief-auto-btn" onclick="autoGenerateBrief()"
+          style="width:100%;justify-content:center;border-style:dashed;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+          从最新日报自动生成简报草稿
+        </button>
+      </div>
+
       <div class="form-row">
         <div class="form-group">
           <label for="brief-date">日期</label>
@@ -238,8 +227,8 @@
       </div>
       <div class="form-row full">
         <div class="form-group">
-          <label for="brief-text">简报正文（2–3句话）</label>
-          <textarea id="brief-text" style="min-height:100px;" placeholder="简短描述当前市场结构、主要参与者行为与近期关注点…"></textarea>
+          <label for="brief-text">简报正文（可在此编辑自动生成的内容）</label>
+          <textarea id="brief-text" style="min-height:120px;" placeholder="点击上方按钮从最新日报自动生成，或手动填写…"></textarea>
         </div>
       </div>
       <div class="admin-actions" style="margin-bottom:14px;">
@@ -252,89 +241,46 @@
       <p style="font-size:12px;color:var(--grey-text);margin-top:10px;">复制后覆盖替换 <code style="background:#e5e7eb;padding:1px 5px;border-radius:3px;">data/market_brief.json</code> 的全部内容。</p>
     </div>
 
-    <!-- ⑨ 指标快照更新 -->
+    <!-- ⑨ 指标快照更新 — OI only -->
     <div class="admin-card">
-      <h2><span>9</span> 指标快照更新 <span style="font-size:10px;background:var(--blue);color:#fff;border-radius:10px;padding:2px 8px;font-weight:600;margin-left:4px;">metrics_snapshot.json</span></h2>
+      <h2><span>9</span> 未平仓合约更新 <span style="font-size:10px;background:var(--blue);color:#fff;border-radius:10px;padding:2px 8px;font-weight:600;margin-left:4px;">metrics_snapshot.json</span></h2>
+
+      <!-- Info box: what's already automated -->
+      <div style="background:var(--blue-light);border:1px solid #BFDBFE;border-radius:8px;padding:12px 14px;margin-bottom:18px;font-size:12.5px;color:#1E40AF;line-height:1.8;">
+        <strong>只需填写 OI</strong> — 其他三个指标已自动处理：<br>
+        ✓ BTC实时价格 → Binance API 自动拉取<br>
+        ✓ 恐惧贪婪指数 → Alternative.me API 自动拉取<br>
+        ✓ ETF净流入 → 已在第 7 节单独更新
+      </div>
+
       <div class="form-row">
         <div class="form-group">
           <label for="metrics-date">日期</label>
           <input type="date" id="metrics-date"/>
         </div>
-      </div>
-
-      <!-- Row 1 -->
-      <div class="metrics-admin-row" style="border:1px solid var(--grey-border);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--grey-bg);">
-        <div style="font-size:11px;font-weight:700;color:var(--navy);margin-bottom:8px;" class="m-label-display">ETF 7日净流入</div>
-        <div class="form-row">
-          <div class="form-group"><label>数值</label><input type="text" class="m-value" placeholder="例：+$18.4亿"/></div>
-          <div class="form-group"><label>变化说明</label><input type="text" class="m-delta" placeholder="例：+12.3%"/></div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>方向</label>
-            <select class="m-dir">
-              <option value="up">↑ 上升 (绿)</option>
-              <option value="down">↓ 下降 (红)</option>
-              <option value="neutral" selected>— 中性 (灰)</option>
-            </select>
-          </div>
-          <div class="form-group"><label>数据来源</label><input type="text" class="m-source" value="SoSoValue"/></div>
+        <div class="form-group">
+          <label for="oi-source">数据来源</label>
+          <input type="text" id="oi-source" value="CoinGlass"/>
         </div>
       </div>
-
-      <!-- Row 2 -->
-      <div class="metrics-admin-row" style="border:1px solid var(--grey-border);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--grey-bg);">
-        <div style="font-size:11px;font-weight:700;color:var(--navy);margin-bottom:8px;" class="m-label-display">永续资金费率</div>
-        <div class="form-row">
-          <div class="form-group"><label>数值</label><input type="text" class="m-value" placeholder="例：+0.0120%"/></div>
-          <div class="form-group"><label>变化说明</label><input type="text" class="m-delta" placeholder="例：轻度多头拥挤"/></div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="oi-value">未平仓合约数值</label>
+          <input type="text" id="oi-value" placeholder="例：256,987 BTC"/>
         </div>
-        <div class="form-row">
-          <div class="form-group"><label>方向</label>
-            <select class="m-dir">
-              <option value="up">↑ 上升 (绿)</option>
-              <option value="down">↓ 下降 (红)</option>
-              <option value="neutral" selected>— 中性 (灰)</option>
-            </select>
-          </div>
-          <div class="form-group"><label>数据来源</label><input type="text" class="m-source" value="CoinGlass"/></div>
+        <div class="form-group">
+          <label for="oi-delta">变化说明</label>
+          <input type="text" id="oi-delta" placeholder="例：-2.1% 日环比"/>
         </div>
       </div>
-
-      <!-- Row 3 -->
-      <div class="metrics-admin-row" style="border:1px solid var(--grey-border);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--grey-bg);">
-        <div style="font-size:11px;font-weight:700;color:var(--navy);margin-bottom:8px;" class="m-label-display">未平仓合约 OI</div>
-        <div class="form-row">
-          <div class="form-group"><label>数值</label><input type="text" class="m-value" placeholder="例：256,987 BTC"/></div>
-          <div class="form-group"><label>变化说明</label><input type="text" class="m-delta" placeholder="例：-2.1% 日环比"/></div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>方向</label>
-            <select class="m-dir">
-              <option value="up">↑ 上升 (绿)</option>
-              <option value="down" selected>↓ 下降 (红)</option>
-              <option value="neutral">— 中性 (灰)</option>
-            </select>
-          </div>
-          <div class="form-group"><label>数据来源</label><input type="text" class="m-source" value="CoinGlass"/></div>
-        </div>
-      </div>
-
-      <!-- Row 4 -->
-      <div class="metrics-admin-row" style="border:1px solid var(--grey-border);border-radius:8px;padding:12px;margin-bottom:14px;background:var(--grey-bg);">
-        <div style="font-size:11px;font-weight:700;color:var(--navy);margin-bottom:8px;" class="m-label-display">恐惧贪婪指数</div>
-        <div class="form-row">
-          <div class="form-group"><label>数值</label><input type="text" class="m-value" placeholder="例：极度恐惧"/></div>
-          <div class="form-group"><label>变化说明</label><input type="text" class="m-delta" placeholder="例：12 / 100"/></div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>方向</label>
-            <select class="m-dir">
-              <option value="up">↑ 上升 (绿)</option>
-              <option value="down" selected>↓ 下降 (红)</option>
-              <option value="neutral">— 中性 (灰)</option>
-            </select>
-          </div>
-          <div class="form-group"><label>数据来源</label><input type="text" class="m-source" value="Alternative.me"/></div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="oi-dir">方向</label>
+          <select id="oi-dir">
+            <option value="up">↑ 上升 (绿)</option>
+            <option value="down" selected>↓ 下降 (红)</option>
+            <option value="neutral">— 中性 (灰)</option>
+          </select>
         </div>
       </div>
 
@@ -342,7 +288,7 @@
         <button type="button" class="btn-primary" onclick="generateMetricsJson()">生成 metrics_snapshot.json</button>
       </div>
       <div class="json-output-wrap">
-        <textarea id="metrics-json-output" class="json-output" readonly placeholder='{ "date": "...", "metrics": [...] }'></textarea>
+        <textarea id="metrics-json-output" class="json-output" readonly placeholder='{ "date": "...", "oi_value": "...", ... }'></textarea>
         <button type="button" class="json-copy-btn" id="metrics-copy-btn" onclick="copyMetricsJson()">复制</button>
       </div>
       <p style="font-size:12px;color:var(--grey-text);margin-top:10px;">复制后覆盖替换 <code style="background:#e5e7eb;padding:1px 5px;border-radius:3px;">data/metrics_snapshot.json</code> 的全部内容。</p>

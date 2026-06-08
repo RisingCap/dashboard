@@ -144,9 +144,6 @@ function generateJSON() {
     oi:           document.getElementById("ind-oi").value.trim()
   };
 
-  // Source post (not publicly displayed)
-  const sourcePost = document.getElementById("source-post").value.trim();
-
   const entry = {
     id:            date,
     date:          date,
@@ -154,7 +151,6 @@ function generateJSON() {
     verdict:       verdict,
     verdict_color: verdictColor,
     bullets:       bullets,
-    source_post:   sourcePost,
     charts:        charts,
     indicators:    indicators
   };
@@ -218,6 +214,62 @@ function copyETFJson() {
 //  V2 — 市场简报 JSON generator
 // ══════════════════════════════════════════════════════
 
+// Auto-fill brief form from latest post in posts.json
+async function autoGenerateBrief() {
+  const btn = document.getElementById("brief-auto-btn");
+  btn.textContent = "读取中…";
+  btn.disabled = true;
+
+  try {
+    const res = await fetch("data/posts.json?v=" + Date.now());
+    if (!res.ok) throw new Error("无法读取 posts.json");
+    const posts = await res.json();
+    if (!posts || posts.length === 0) throw new Error("posts.json 为空");
+
+    // Get latest post
+    posts.sort((a, b) => b.date.localeCompare(a.date));
+    const latest = posts[0];
+
+    // Set date to today
+    const today = new Date().toISOString().split("T")[0];
+    document.getElementById("brief-date").value = today;
+
+    // Map verdict → stance dropdown value
+    const verdictToStance = {
+      "极度看多": "极度看多", "偏多": "偏多",
+      "中性": "中性",
+      "偏空": "偏空", "极度看空": "极度看空"
+    };
+    const stance = verdictToStance[latest.verdict] || "中性";
+    document.getElementById("brief-stance").value = stance;
+
+    // Auto state label from verdict
+    const labelMap = {
+      "极度看多": "强势多头 / 趋势明确",
+      "偏多":    "结构性偏多 / 需持续观察",
+      "中性":    "方向待定 / 关注宏观",
+      "偏空":    "结构性偏空 / 注意风险",
+      "极度看空": "高风险区间 / 防御为主"
+    };
+    document.getElementById("brief-state-label").value = labelMap[latest.verdict] || "";
+
+    // Join bullets into a brief paragraph
+    const bullets = latest.bullets || [];
+    const brief = bullets.join("。") + (bullets.length ? "。" : "");
+    document.getElementById("brief-text").value = brief;
+
+    btn.textContent = "✓ 已从最新日报生成，请检查并编辑后再保存";
+    btn.style.background = "rgba(22,163,74,0.15)";
+    btn.style.borderColor = "#16a34a";
+    btn.style.color = "#16a34a";
+  } catch (err) {
+    alert("自动生成失败：" + err.message);
+    btn.textContent = "从最新日报自动生成";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function generateBriefJson() {
   const date        = document.getElementById("brief-date").value;
   const state_label = document.getElementById("brief-state-label").value.trim();
@@ -239,23 +291,23 @@ function copyBriefJson() {
 }
 
 // ══════════════════════════════════════════════════════
-//  V2 — 指标快照 JSON generator
+//  V2 — 指标快照 JSON generator (OI only)
+//  BTC price → live Binance   (no manual input needed)
+//  Fear & Greed → live Alt.me (no manual input needed)
+//  ETF flow → etf.json form   (Section 7)
+//  OI → this form only
 // ══════════════════════════════════════════════════════
 
 function generateMetricsJson() {
-  const date = document.getElementById("metrics-date").value;
+  const date      = document.getElementById("metrics-date").value;
+  const oi_value  = document.getElementById("oi-value").value.trim();
+  const oi_delta  = document.getElementById("oi-delta").value.trim();
+  const oi_dir    = document.getElementById("oi-dir").value;
+  const oi_source = document.getElementById("oi-source").value.trim();
+
   if (!date) { alert("请填写日期"); return; }
 
-  const rows = document.querySelectorAll(".metrics-admin-row");
-  const metrics = Array.from(rows).map(row => ({
-    label:     row.querySelector(".m-label-display").textContent,
-    value:     row.querySelector(".m-value").value.trim(),
-    delta:     row.querySelector(".m-delta").value.trim(),
-    delta_dir: row.querySelector(".m-dir").value,
-    source:    row.querySelector(".m-source").value.trim()
-  }));
-
-  const entry = { date, metrics };
+  const entry = { date, oi_value, oi_delta, oi_delta_dir: oi_dir, oi_source };
   document.getElementById("metrics-json-output").value = JSON.stringify(entry, null, 2);
 }
 
