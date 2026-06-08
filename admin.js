@@ -188,11 +188,106 @@ function copyJSON() {
   });
 }
 
+// ══════════════════════════════════════════════════════
+//  V2 — ETF流入 JSON generator
+// ══════════════════════════════════════════════════════
+
+function generateETFJson() {
+  const date   = document.getElementById("etf-date").value;
+  const flow   = parseFloat(document.getElementById("etf-flow-val").value);
+  const source = document.getElementById("etf-source").value;
+  const note   = document.getElementById("etf-note").value.trim();
+
+  if (!date || isNaN(flow)) {
+    alert("请填写日期和净流入金额");
+    return;
+  }
+
+  const sign  = flow >= 0 ? "+" : "";
+  const label = sign + "$" + Math.abs(flow).toFixed(2) + "M";
+
+  const entry = { date, net_flow_usd_million: flow, label, source, note };
+  document.getElementById("etf-json-output").value = JSON.stringify(entry, null, 2);
+}
+
+function copyETFJson() {
+  copyFromTextarea("etf-json-output", "etf-copy-btn");
+}
+
+// ══════════════════════════════════════════════════════
+//  V2 — 市场简报 JSON generator
+// ══════════════════════════════════════════════════════
+
+function generateBriefJson() {
+  const date        = document.getElementById("brief-date").value;
+  const state_label = document.getElementById("brief-state-label").value.trim();
+  const brief       = document.getElementById("brief-text").value.trim();
+  const stance      = document.getElementById("brief-stance").value;
+
+  if (!date || !brief) {
+    alert("请填写日期和简报内容");
+    return;
+  }
+
+  const colorMap = { "偏多": "bull", "极度看多": "bull", "偏空": "bear", "极度看空": "bear", "中性": "neutral" };
+  const entry = { date, state_label, brief, stance, stance_color: colorMap[stance] || "neutral" };
+  document.getElementById("brief-json-output").value = JSON.stringify(entry, null, 2);
+}
+
+function copyBriefJson() {
+  copyFromTextarea("brief-json-output", "brief-copy-btn");
+}
+
+// ══════════════════════════════════════════════════════
+//  V2 — 指标快照 JSON generator
+// ══════════════════════════════════════════════════════
+
+function generateMetricsJson() {
+  const date = document.getElementById("metrics-date").value;
+  if (!date) { alert("请填写日期"); return; }
+
+  const rows = document.querySelectorAll(".metrics-admin-row");
+  const metrics = Array.from(rows).map(row => ({
+    label:     row.querySelector(".m-label-display").textContent,
+    value:     row.querySelector(".m-value").value.trim(),
+    delta:     row.querySelector(".m-delta").value.trim(),
+    delta_dir: row.querySelector(".m-dir").value,
+    source:    row.querySelector(".m-source").value.trim()
+  }));
+
+  const entry = { date, metrics };
+  document.getElementById("metrics-json-output").value = JSON.stringify(entry, null, 2);
+}
+
+function copyMetricsJson() {
+  copyFromTextarea("metrics-json-output", "metrics-copy-btn");
+}
+
+// ── Shared copy helper ────────────────────────────────
+
+function copyFromTextarea(textareaId, btnId) {
+  const ta  = document.getElementById(textareaId);
+  const btn = document.getElementById(btnId);
+  if (!ta.value.trim()) { alert("请先点击「生成JSON」"); return; }
+  navigator.clipboard.writeText(ta.value).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = "已复制 ✓";
+    btn.style.background = "rgba(22,163,74,0.25)";
+    setTimeout(() => { btn.textContent = orig; btn.style.background = ""; }, 2000);
+  }).catch(() => { ta.select(); document.execCommand("copy"); });
+}
+
 // ── Set default date to today ─────────────────────────
 
 document.addEventListener("DOMContentLoaded", () => {
   const today = new Date().toISOString().split("T")[0];
   document.getElementById("post-date").value = today;
+
+  // Pre-fill v2 date fields
+  ["etf-date", "brief-date", "metrics-date"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = today;
+  });
 
   // Seed with one empty bullet and one empty chart row
   addBulletRow();
