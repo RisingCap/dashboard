@@ -59,7 +59,32 @@ async function fetchFearGreed() {
   }
 }
 
+// Live ETF daily net inflow via Vercel proxy, with silent fallback to etf.json.
+// Returns the same shape the metrics card expects:
+//   { net_flow_usd_million, label, date, source, note }
 async function fetchETFData() {
+  // Primary: live SoSoValue proxy
+  try {
+    const res = await fetch("/api/etf-metrics");
+    if (!res.ok) throw new Error("api " + res.status);
+    const json = await res.json();
+    const d = json.data || json;
+    const di = d.dailyNetInflow;
+    if (di && di.value != null) {
+      const usd = parseFloat(di.value);
+      const million = usd / 1e6;
+      return {
+        net_flow_usd_million: million,
+        label: (million >= 0 ? "+" : "-") + "$" + fmtUsdShort(Math.abs(usd)),
+        date: (di.lastUpdateDate || "").slice(0, 10),
+        source: "SoSoValue",
+        note: ""
+      };
+    }
+    throw new Error("no dailyNetInflow");
+  } catch (_) {}
+
+  // Fallback: manual etf.json
   try {
     const res = await fetch("data/etf.json?v=" + Date.now());
     if (!res.ok) throw new Error("etf " + res.status);
@@ -169,6 +194,7 @@ function initTabs() {
   function activate(targetPage) {
     tabs.forEach(t => t.classList.toggle("active", t.dataset.page === targetPage));
     panels.forEach(p => p.classList.toggle("active", p.dataset.page === targetPage));
+    if (targetPage === "etf") initETFPage();   // lazy-load on first open
   }
 
   function goHome() {
@@ -288,9 +314,9 @@ async function loadMetricsGrid() {
     const flow  = etf.net_flow_usd_million;
     const dir   = flow > 0 ? "up" : flow < 0 ? "down" : "neutral";
     const dateStr = etf.date ? etf.date.slice(5) : "";
-    etfCard = metricCard("ETF 净流入", etf.label, dateStr + (etf.note ? " · " + etf.note : ""), dir, etf.source || "SoSoValue");
+    etfCard = metricCard("ETF 净流入", etf.label, dateStr + (etf.note ? " · " + etf.note : ""), dir, etf.source || "SoSoValue", true);
   } else {
-    etfCard = metricCard("ETF 净流入", "-- --", "暂无数据", "neutral", "SoSoValue");
+    etfCard = metricCard("ETF 净流入", "-- --", "暂无数据", "neutral", "SoSoValue", true);
   }
 
   // Card 4 — OI manual
@@ -571,3 +597,313 @@ document.addEventListener("DOMContentLoaded", () => {
   initSummaryExtras();
   initPostsFeed();
 });
+
+// ══════════════════════════════════════════════════════
+//  V3 — ETF资金流 PAGE (live SoSoValue via /api proxy)
+// ══════════════════════════════════════════════════════
+
+let _etfLoaded = false;        // guard so we only fetch once
+let _etfInflowChart = null;    // Chart.js instances
+let _etfRankChart   = null;
+let _etfHistoryRaw  = [];      // cached merged history for range toggle
+
+// ── USD formatting: auto-scale to M / B with 2 decimals ──
+function fmtUsdShort(absUsd) {
+  if (absUsd >= 1e9) return (absUsd / 1e9).toFixed(2) + "B";
+  if (absUsd >= 1e6) return (absUsd / 1e6).toFixed(2) + "M";
+  if (absUsd >= 1e3) return (absUsd / 1e3).toFixed(2) + "K";
+  return absUsd.toFixed(2);
+}
+// Signed "$X.XXB" style, keeps +/- sign
+function fmtUsdSigned(usd) {
+  const n = parseFloat(usd);
+  if (isNaN(n)) return "--";
+  return (n < 0 ? "-" : "") + "$" + fmtUsdShort(Math.abs(n));
+}
+function numOr(v, d = 0) { const n = parseFloat(v); return isNaN(n) ? d : n; }
+
+async function initETFPage() {
+  if (_etfLoaded) return;
+  _etfLoaded = true;
+  try {
+    const [mRes, hRes] = await Promise.all([
+      fetch("/api/etf-metrics"),
+      fetch("/api/etf-history")
+    ]);
+    if (!mRes.ok || !hRes.ok) throw new Error("api");
+    const metrics = await mRes.json();
+    const history = await hRes.json();
+
+    const m = metrics.data || metrics;
+    const h = history.data || history;
+
+    renderETFCards(m);
+    renderETFFundTable(m);
+    renderETFRankChart(m);
+    await buildETFInflowChart(h);
+    wireETFToggles();
+  } catch (err) {
+    console.error("ETF page load failed:", err);
+    _etfLoaded = false; // allow retry on next tab open
+    const cards = document.getElementById("etf-cards");
+    if (cards) cards.innerHTML =
+      `<div class="etf-error">数据加载失败，请刷新重试</div>`;
+    const tbl = document.getElementById("etf-fund-table");
+    if (tbl) tbl.innerHTML = `<div class="etf-error">数据加载失败，请刷新重试</div>`;
+  }
+}
+
+// ── Section A — 4 metric header cards ─────────────────
+function renderETFCards(m) {
+  const el = document.getElementById("etf-cards");
+  if (!el) return;
+
+  const card = (label, valueHtml, sub, colorClass) => `
+    <div class="etf-card">
+      <div class="etf-card-label">${label}</div>
+      <div class="etf-card-value ${colorClass || ""}">${valueHtml}</div>
+      <div class="etf-card-sub">${sub || ""}</div>
+    </div>`;
+
+  const daily = m.dailyNetInflow      || {};
+  const cum   = m.cumNetInflow        || {};
+  const trade = m.dailyTotalValueTraded || {};
+  const asset = m.totalNetAssets      || {};
+  const pct   = m.totalNetAssetsPercentage || {};
+
+  const dVal = numOr(daily.value);
+  const cVal = numOr(cum.value);
+
+  el.innerHTML =
+    card("日净流入", fmtUsdSigned(dVal), "截至 " + (daily.lastUpdateDate || "").slice(0,10),
+         dVal >= 0 ? "etf-pos" : "etf-neg") +
+    card("累计总净流入", fmtUsdSigned(cVal), "截至 " + (cum.lastUpdateDate || "").slice(0,10),
+         cVal >= 0 ? "etf-pos" : "etf-neg") +
+    card("日交易额", "$" + fmtUsdShort(numOr(trade.value)),
+         "截至 " + (trade.lastUpdateDate || "").slice(0,10), "") +
+    card("总净资产", "$" + fmtUsdShort(numOr(asset.value)),
+         "占BTC市值 " + (pct.value != null ? (numOr(pct.value) * (numOr(pct.value) < 1 ? 100 : 1)).toFixed(2) : "--") + "%", "");
+}
+
+// ── Section C — per-fund table ────────────────────────
+function fundList(m) {
+  return (m.list || m.funds || []).slice();
+}
+function fundCell(usd) {
+  const n = numOr(usd, NaN);
+  if (isNaN(n)) return `<td class="etf-grey">--</td>`;
+  const cls = n > 0 ? "etf-pos" : n < 0 ? "etf-neg" : "etf-grey";
+  return `<td class="${cls}">${fmtUsdSigned(n)}</td>`;
+}
+function pickVal(obj) { return obj && obj.value != null ? obj.value : obj; }
+
+function renderETFFundTable(m) {
+  const el = document.getElementById("etf-fund-table");
+  if (!el) return;
+  const funds = fundList(m);
+  if (!funds.length) { el.innerHTML = `<div class="etf-error">暂无基金数据</div>`; return; }
+
+  // Sort by total net assets descending
+  funds.sort((a, b) => numOr(pickVal(b.netAssets)) - numOr(pickVal(a.netAssets)));
+
+  const rows = funds.map(f => {
+    const ticker    = f.ticker || f.symbol || f.name || "--";
+    const institute = f.institute || f.issuer || "";
+    const fee       = f.fee != null ? f.fee : (f.feeRate != null ? f.feeRate : null);
+    const feeStr    = fee != null ? (numOr(fee) < 1 ? (numOr(fee)*100).toFixed(2) : numOr(fee).toFixed(2)) + "%" : "--";
+    return `
+      <tr>
+        <td class="etf-fund-name"><strong>${ticker}</strong><span>${institute}</span></td>
+        ${fundCell(pickVal(f.dailyNetInflow))}
+        ${fundCell(pickVal(f.cumNetInflow))}
+        <td>${f.dailyValueTraded != null || (f.dailyTotalValueTraded!=null) ? "$" + fmtUsdShort(numOr(pickVal(f.dailyValueTraded ?? f.dailyTotalValueTraded))) : "--"}</td>
+        <td>${"$" + fmtUsdShort(numOr(pickVal(f.netAssets)))}</td>
+        <td class="etf-grey">${feeStr}</td>
+      </tr>`;
+  }).join("");
+
+  el.innerHTML = `
+    <table class="etf-table">
+      <thead>
+        <tr><th>基金</th><th>日净流入</th><th>累计净流入</th><th>日交易额</th><th>总净资产</th><th>费率</th></tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+// ── Section D — institution holdings ranking bar ──────
+function renderETFRankChart(m) {
+  const canvas = document.getElementById("etf-rank-chart");
+  if (!canvas || !window.Chart) return;
+  const funds = fundList(m)
+    .map(f => ({
+      ticker: f.ticker || f.symbol || f.name || "--",
+      assets: numOr(pickVal(f.netAssets))
+    }))
+    .filter(f => f.assets > 0)
+    .sort((a, b) => b.assets - a.assets);
+
+  if (!funds.length) return;
+
+  canvas.parentElement.style.height = Math.max(160, funds.length * 40) + "px";
+  const colors = funds.map((_, i) => i === 0 ? "#F0A12C" : "#6B7280");
+
+  const sub = document.getElementById("etf-rank-sub");
+  const upd = (m.totalNetAssets && m.totalNetAssets.lastUpdateDate) || "";
+  if (sub) sub.textContent = "数据来源：SoSoValue · 更新于 " + upd.slice(0,10);
+
+  if (_etfRankChart) _etfRankChart.destroy();
+  _etfRankChart = new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels: funds.map(f => f.ticker),
+      datasets: [{ data: funds.map(f => f.assets), backgroundColor: colors, borderRadius: 4 }]
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: c => "$" + fmtUsdShort(c.parsed.x) } }
+      },
+      scales: {
+        x: { ticks: { color: "#9aa3b2", callback: v => "$" + fmtUsdShort(v) },
+             grid: { color: "rgba(255,255,255,0.06)" } },
+        y: { ticks: { color: "#cbd2de", font: { weight: "600" } }, grid: { display: false } }
+      }
+    }
+  });
+}
+
+// ── Section B — daily net inflow combo chart ──────────
+async function buildETFInflowChart(h) {
+  // Normalise history rows → [{date, inflow(USD), assets(USD)}]
+  const rows = (Array.isArray(h) ? h : (h.list || h.data || [])).map(r => ({
+    date:   (r.date || r.lastUpdateDate || r.day || "").slice(0,10),
+    inflow: numOr(r.totalNetInflow ?? r.netInflow ?? r.value ?? r.dailyNetInflow),
+    assets: numOr(r.totalNetAssets ?? r.netAssets ?? r.totalNetAsset)
+  })).filter(r => r.date);
+
+  rows.sort((a, b) => a.date.localeCompare(b.date));
+  const last90 = rows.slice(-90);
+
+  // BTC price history from Binance (public, no proxy)
+  let btcByDate = {};
+  try {
+    const res = await fetch("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=90");
+    if (res.ok) {
+      const kl = await res.json();
+      kl.forEach(k => {
+        const date = new Date(k[0]).toISOString().slice(0,10);
+        btcByDate[date] = parseFloat(k[4]); // close
+      });
+    }
+  } catch (_) {}
+
+  _etfHistoryRaw = last90.map(r => ({ ...r, btc: btcByDate[r.date] ?? null }));
+  drawETFInflowChart("d");
+}
+
+// Aggregate daily rows into weekly / monthly buckets
+function aggregateETF(rows, range) {
+  if (range === "d") return rows;
+  const buckets = {};
+  rows.forEach(r => {
+    let key;
+    if (range === "m") key = r.date.slice(0, 7);            // YYYY-MM
+    else { // weekly: ISO-ish week key by year + week number
+      const d = new Date(r.date + "T00:00:00");
+      const onejan = new Date(d.getFullYear(), 0, 1);
+      const week = Math.ceil((((d - onejan) / 86400000) + onejan.getDay() + 1) / 7);
+      key = d.getFullYear() + "-W" + String(week).padStart(2, "0");
+    }
+    if (!buckets[key]) buckets[key] = { date: r.date, inflow: 0, assets: r.assets, btc: r.btc };
+    buckets[key].inflow += r.inflow;       // sum flows
+    buckets[key].assets  = r.assets;       // last asset value in bucket
+    buckets[key].btc     = r.btc;          // last btc in bucket
+    buckets[key].date    = r.date;         // last date label
+  });
+  return Object.values(buckets);
+}
+
+function drawETFInflowChart(range) {
+  const canvas = document.getElementById("etf-inflow-chart");
+  if (!canvas || !window.Chart) return;
+  const rows = aggregateETF(_etfHistoryRaw, range);
+
+  const labels  = rows.map(r => r.date);
+  const inflowM = rows.map(r => r.inflow / 1e6);  // millions
+  const assetsB = rows.map(r => r.assets / 1e9);  // billions
+  const btc     = rows.map(r => r.btc);
+  const barColors = inflowM.map(v => v >= 0 ? "rgba(22,163,74,0.85)" : "rgba(220,38,38,0.85)");
+
+  // Legend (latest values)
+  const last = rows[rows.length - 1] || {};
+  const legend = document.getElementById("etf-chart-legend");
+  if (legend) legend.innerHTML =
+    `<span class="lg lg-bar">■ 日净流入 ${fmtUsdSigned(last.inflow || 0)}</span>` +
+    `<span class="lg lg-asset">— 总净资产 $${fmtUsdShort(last.assets || 0)}</span>` +
+    (last.btc ? `<span class="lg lg-btc">— BTC价格 $${Math.round(last.btc).toLocaleString("en-US")}</span>` : "");
+
+  if (_etfInflowChart) _etfInflowChart.destroy();
+  _etfInflowChart = new Chart(canvas, {
+    data: {
+      labels,
+      datasets: [
+        { type: "bar", label: "日净流入(M)", data: inflowM, yAxisID: "y",
+          backgroundColor: barColors, borderRadius: 2, order: 3 },
+        { type: "line", label: "总净资产(B)", data: assetsB, yAxisID: "y1",
+          borderColor: "#cbd2de", borderWidth: 1.5, pointRadius: 0, tension: 0.25, order: 2 },
+        { type: "line", label: "BTC价格", data: btc, yAxisID: "y2",
+          borderColor: "#F0A12C", borderWidth: 1.5, pointRadius: 0, tension: 0.25, order: 1 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: "#9aa3b2", maxTicksLimit: 8, autoSkip: true },
+             grid: { display: false } },
+        y:  { position: "left",  ticks: { color: "#9aa3b2", callback: v => v + "M" },
+              grid: { color: "rgba(255,255,255,0.06)" } },
+        y1: { position: "right", ticks: { color: "#cbd2de", callback: v => "$" + v + "B" },
+              grid: { display: false } },
+        y2: { display: false }   // BTC shares the right side visually, hidden ticks
+      }
+    }
+  });
+}
+
+function wireETFToggles() {
+  const rangeToggle = document.getElementById("etf-range-toggle");
+  if (rangeToggle) {
+    rangeToggle.querySelectorAll(".etf-range-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        rangeToggle.querySelectorAll(".etf-range-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        drawETFInflowChart(btn.dataset.range);
+      });
+    });
+  }
+
+  const periodToggle = document.getElementById("etf-period-toggle");
+  if (periodToggle) {
+    periodToggle.querySelectorAll(".etf-period-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        periodToggle.querySelectorAll(".etf-period-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        const period = btn.dataset.period;
+        const tbl = document.getElementById("etf-fund-table");
+        if (period === "daily") {
+          // Re-fetch cached metrics by reloading the live snapshot
+          fetch("/api/etf-metrics").then(r => r.json()).then(j => renderETFFundTable(j.data || j))
+            .catch(() => { tbl.innerHTML = `<div class="etf-error">数据加载失败，请刷新重试</div>`; });
+        } else {
+          // TODO: wire weekly/monthly endpoints in future
+          tbl.innerHTML = `<div class="etf-placeholder-note">数据准备中</div>`;
+        }
+      });
+    });
+  }
+}

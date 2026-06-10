@@ -56,22 +56,50 @@
 
   <!-- ══ Page: ETF资金流 ══════════════════════════════ -->
   <div class="page-panel" data-page="etf">
-    <div class="placeholder-page">
-      <div class="ph-icon">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
-        </svg>
+    <main class="main-container">
+
+      <div class="section-label">ETF 资金流向 · 实时</div>
+
+      <!-- A. Metric header cards -->
+      <div class="etf-cards" id="etf-cards">
+        <div class="etf-skeleton"></div><div class="etf-skeleton"></div>
+        <div class="etf-skeleton"></div><div class="etf-skeleton"></div>
       </div>
-      <h3>ETF 资金流向</h3>
-      <p class="ph-version">页面建设中 · Version 3 将展示</p>
-      <ul class="ph-list">
-        <li>每日ETF净流入 / 流出</li>
-        <li>各基金明细（IBIT / FBTC / GBTC 等）</li>
-        <li>累计流入趋势图</li>
-        <li>机构持有量排名</li>
-      </ul>
-      <p class="ph-source">数据来源：SoSoValue / Farside</p>
-    </div>
+
+      <!-- B. Daily net inflow combo chart -->
+      <div class="etf-chart-card">
+        <div class="etf-chart-head">
+          <div class="etf-chart-legend" id="etf-chart-legend">—</div>
+          <div class="etf-range-toggle" id="etf-range-toggle">
+            <button class="etf-range-btn active" data-range="d">日</button>
+            <button class="etf-range-btn" data-range="w">周</button>
+            <button class="etf-range-btn" data-range="m">月</button>
+          </div>
+        </div>
+        <div class="etf-chart-wrap"><canvas id="etf-inflow-chart"></canvas></div>
+      </div>
+
+      <!-- C. Per-fund history table -->
+      <div class="etf-table-card">
+        <div class="etf-table-head">
+          <div class="section-label" style="margin:0;">各基金明细</div>
+          <div class="etf-period-toggle" id="etf-period-toggle">
+            <button class="etf-period-btn active" data-period="daily">日</button>
+            <button class="etf-period-btn" data-period="weekly">周</button>
+            <button class="etf-period-btn" data-period="monthly">月</button>
+          </div>
+        </div>
+        <div id="etf-fund-table"><div class="etf-skeleton" style="height:200px;"></div></div>
+      </div>
+
+      <!-- D. Institution holdings ranking -->
+      <div class="etf-chart-card">
+        <div class="etf-rank-title">机构持有量排名（按总净资产）</div>
+        <div class="etf-rank-sub" id="etf-rank-sub">数据来源：SoSoValue</div>
+        <div class="etf-rank-wrap"><canvas id="etf-rank-chart"></canvas></div>
+      </div>
+
+    </main>
   </div>
 
   <!-- ══ Page: 机构持仓 ════════════════════════════════ -->
@@ -183,6 +211,7 @@
     <img class="lightbox-img" id="lightbox-img" src="" alt="" onclick="event.stopPropagation()"/>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="main.js"></script>
   <script>
     function openLightbox(src) {
