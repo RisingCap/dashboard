@@ -45,6 +45,9 @@ function addChartRow() {
         <option value="Hyperliquid">Hyperliquid</option>
         <option value="Velo">Velo</option>
         <option value="Hashrate Index">Hashrate Index</option>
+        <option value="TradingView">TradingView</option>
+        <option value="X">X</option>
+        <option value="CheckOnChain">CheckOnChain</option>
         <option value="其他">其他</option>
       </select>
     </div>`;
@@ -199,7 +202,7 @@ function generateETFJson() {
     return;
   }
 
-  const sign  = flow >= 0 ? "+" : "";
+  const sign  = flow >= 0 ? "+" : "-";
   const label = sign + "$" + Math.abs(flow).toFixed(2) + "M";
 
   const entry = { date, net_flow_usd_million: flow, label, source, note };
