@@ -468,9 +468,6 @@ function renderHero(post) {
           </div>
           <div class="hero-title">${post.title}</div>
           <ul class="hero-bullets">${bulletsHTML}</ul>
-          <div class="indicators-strip">
-            ${indicatorPills(post.indicators, true)}
-          </div>
         </div>
         <div class="hero-right">
           <div class="charts-grid ${gridClass}">${chartsHTML}</div>
@@ -530,9 +527,6 @@ function renderArchiveCard(post) {
       <div class="archive-card-body">
         <div class="archive-body-left">
           <ul>${allBulletsHTML}</ul>
-          <div class="archive-indicators">
-            ${indicatorPills(post.indicators, false)}
-          </div>
         </div>
         <div class="archive-body-right">
           <div class="archive-charts-grid ${archiveGridClass}">${allChartsHTML}</div>

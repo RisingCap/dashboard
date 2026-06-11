@@ -139,14 +139,6 @@ function generateJSON() {
     source:   g.querySelector(".chart-source").value
   })).filter(c => c.filename);
 
-  // Indicators
-  const indicators = {
-    btc_price:    document.getElementById("ind-price").value.trim(),
-    funding_rate: document.getElementById("ind-funding").value.trim(),
-    etf_flow:     document.getElementById("ind-etf").value.trim(),
-    oi:           document.getElementById("ind-oi").value.trim()
-  };
-
   const entry = {
     id:            date,
     date:          date,
@@ -154,8 +146,7 @@ function generateJSON() {
     verdict:       verdict,
     verdict_color: verdictColor,
     bullets:       bullets,
-    charts:        charts,
-    indicators:    indicators
+    charts:        charts
   };
 
   const json = JSON.stringify(entry, null, 2);
