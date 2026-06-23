@@ -1,232 +1,63 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <meta name="description" content="HTX Research — BTC市场参与者追踪日报"/>
-  <meta name="robots" content="index, follow"/>
   <title>HTX Research · BTC市场参与者日报</title>
   <meta property="og:title" content="HTX Research · BTC市场参与者日报"/>
   <meta property="og:description" content="每日追踪ETF买家、矿工、长期持有者、衍生品交易者和CTA基金的行为与仓位"/>
   <meta property="og:type" content="website"/>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+
   <link rel="stylesheet" href="style.css"/>
 </head>
 <body>
 
-  <!-- ══ Header + Nav ════════════════════════════════ -->
-  <header class="site-header">
-    <a class="header-logo" href="#" id="logo-home">
-      <div class="logo-mark">HTX</div>
-      <span class="logo-text">HTX Research</span>
-    </a>
-    <nav class="header-nav">
-      <button class="header-tab-btn" data-page="etf">ETF资金流</button>
-      <button class="header-tab-btn" data-page="institutions">机构持仓</button>
-      <button class="header-tab-btn" data-page="derivatives">衍生品市场</button>
-      <button class="header-tab-btn" data-page="miners">矿工</button>
-      <button class="header-tab-btn" data-page="onchain">链上指标</button>
-    </nav>
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#" id="brand-home">
+        <div class="brand-mark">H</div>
+        <div class="brand-name">HTX Research <span class="dim">· BTC 市场参与者</span></div>
+      </a>
+      <div class="spacer"></div>
+      <div class="btc-chip" id="btc-chip">
+        <span class="dot"></span>
+        <span class="num" style="font-weight:600;">BTC --</span>
+      </div>
+      <button class="icon-btn" id="theme-toggle" title="切换主题">☀</button>
+    </div>
+    <div class="topbar-inner" style="height:auto; padding-bottom:0;">
+      <nav class="nav" id="nav"><!-- tabs injected by main.js --></nav>
+    </div>
   </header>
 
-  <!-- ══ Page: 摘要 ════════════════════════════════════ -->
-  <div class="page-panel" data-page="summary">
-    <main class="main-container">
-
-      <!-- A. Market State Banner -->
-      <div class="market-banner" id="market-banner">
-        <div class="banner-brief" style="color:var(--grey-text)">加载市场简报…</div>
-      </div>
-
-      <!-- B. Key Metrics Grid -->
-      <div class="metrics-grid" id="metrics-grid">
-        <!-- injected by main.js -->
-      </div>
-
-      <!-- C. Daily Reports Feed -->
-      <div class="section-label">今日报告</div>
-      <div id="hero-section">
-        <div class="loading-spinner"><div class="spinner"></div></div>
-      </div>
-
-      <div class="section-label" style="margin-top:40px;">历史记录</div>
-      <div class="archive-grid" id="archive-section"></div>
-
-    </main>
+  <!-- News ticker -->
+  <div class="ticker-wrap">
+    <div class="ticker-badge"><span class="pulse"></span>BTC 快讯</div>
+    <div class="ticker" id="ticker"><!-- injected --></div>
   </div>
 
-  <!-- ══ Page: ETF资金流 ══════════════════════════════ -->
-  <div class="page-panel" data-page="etf">
-    <main class="main-container">
+  <!-- Main -->
+  <main class="app">
+    <div id="view" class="fade"><!-- active section injected --></div>
 
-      <div class="section-label">ETF 资金流向 · 实时</div>
-
-      <!-- A. Metric header cards -->
-      <div class="etf-cards" id="etf-cards">
-        <div class="etf-skeleton"></div><div class="etf-skeleton"></div>
-        <div class="etf-skeleton"></div><div class="etf-skeleton"></div>
-      </div>
-
-      <!-- B. Daily net inflow combo chart -->
-      <div class="etf-chart-card">
-        <div class="etf-chart-head">
-          <div class="etf-chart-legend" id="etf-chart-legend">—</div>
-          <div class="etf-range-toggle" id="etf-range-toggle">
-            <button class="etf-range-btn active" data-range="d">日</button>
-            <button class="etf-range-btn" data-range="w">周</button>
-            <button class="etf-range-btn" data-range="m">月</button>
-          </div>
-        </div>
-        <div class="etf-chart-wrap"><canvas id="etf-inflow-chart"></canvas></div>
-      </div>
-
-      <!-- C. Per-fund history table -->
-      <div class="etf-table-card">
-        <div class="etf-table-head">
-          <div class="section-label" style="margin:0;">各基金明细</div>
-          <div class="etf-period-toggle" id="etf-period-toggle">
-            <button class="etf-period-btn active" data-period="daily">日</button>
-            <button class="etf-period-btn" data-period="weekly">周</button>
-            <button class="etf-period-btn" data-period="monthly">月</button>
-          </div>
-        </div>
-        <div id="etf-fund-table"><div class="etf-skeleton" style="height:200px;"></div></div>
-      </div>
-
-      <!-- D. Institution holdings ranking -->
-      <div class="etf-chart-card">
-        <div class="etf-rank-title">机构持有量排名（按总净资产）</div>
-        <div class="etf-rank-sub" id="etf-rank-sub">数据来源：SoSoValue</div>
-        <div class="etf-rank-wrap"><canvas id="etf-rank-chart"></canvas></div>
-      </div>
-
-    </main>
-  </div>
-
-  <!-- ══ Page: 机构持仓 ════════════════════════════════ -->
-  <div class="page-panel" data-page="institutions">
-    <div class="placeholder-page">
-      <div class="ph-icon">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <rect x="2" y="7" width="20" height="14" rx="2"/>
-          <path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/>
-        </svg>
-      </div>
-      <h3>机构持仓追踪</h3>
-      <p class="ph-version">页面建设中 · Version 3 将展示</p>
-      <ul class="ph-list">
-        <li>MicroStrategy / Strategy 持仓追踪</li>
-        <li>上市公司 BTC 储备总量</li>
-        <li>ETF 总持仓量变化</li>
-        <li>主权基金 / 养老基金动向</li>
-      </ul>
-      <p class="ph-source">数据来源：BitcoinTreasuries / 公开披露</p>
+    <div class="footer">
+      <div>最后更新：<span class="num" id="footer-updated">—</span> · 设计风格 <strong style="color:var(--text);">Fintech · Agora</strong></div>
+      <div>HTX Research · <span class="handle">@0xRisingCapital</span></div>
     </div>
-  </div>
+  </main>
 
-  <!-- ══ Page: 衍生品市场 ════════════════════════════════ -->
-  <div class="page-panel" data-page="derivatives">
-    <div class="placeholder-page">
-      <div class="ph-icon">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
-          <polyline points="16 7 22 7 22 13"/>
-        </svg>
-      </div>
-      <h3>衍生品市场</h3>
-      <p class="ph-version">页面建设中 · Version 3 将展示</p>
-      <ul class="ph-list">
-        <li>永续合约资金费率（8h OI加权）</li>
-        <li>未平仓合约 OI 趋势</li>
-        <li>爆仓数据 · 多空比</li>
-        <li>期权 25日偏斜度 · 隐含波动率</li>
-      </ul>
-      <p class="ph-source">数据来源：CoinGlass / Hyperliquid / Velo</p>
-    </div>
-  </div>
-
-  <!-- ══ Page: 矿工 ════════════════════════════════════ -->
-  <div class="page-panel" data-page="miners">
-    <div class="placeholder-page">
-      <div class="ph-icon">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-        </svg>
-      </div>
-      <h3>矿工数据</h3>
-      <p class="ph-version">页面建设中 · Version 3 将展示</p>
-      <ul class="ph-list">
-        <li>矿工净转出量 · 储备余额</li>
-        <li>哈希价格 · 算力趋势</li>
-        <li>关机价范围 · 盈利矿机比例</li>
-        <li>难度调整预期</li>
-      </ul>
-      <p class="ph-source">数据来源：Glassnode / Hashrate Index</p>
-    </div>
-  </div>
-
-  <!-- ══ Page: 链上指标 ═══════════════════════════════ -->
-  <div class="page-panel" data-page="onchain">
-    <div class="placeholder-page">
-      <div class="ph-icon">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <circle cx="18" cy="5" r="3"/>
-          <circle cx="6" cy="12" r="3"/>
-          <circle cx="18" cy="19" r="3"/>
-          <path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98"/>
-        </svg>
-      </div>
-      <h3>链上指标</h3>
-      <p class="ph-version">页面建设中 · Version 3 将展示</p>
-      <ul class="ph-list">
-        <li>LTH / STH 未实现盈亏比例</li>
-        <li>MVRV-Z Score · SOPR</li>
-        <li>交易所 BTC 净流量</li>
-        <li>RHODL Ratio · 休眠流动性</li>
-      </ul>
-      <p class="ph-source">数据来源：Glassnode / CheckOnChain</p>
-    </div>
-  </div>
-
-  <!-- ══ Footer ══════════════════════════════════════ -->
-  <footer class="site-footer">
-    <div>
-      数据来源：
-      <a href="https://sosovalue.xyz"     target="_blank" rel="noopener">SoSoValue</a> ·
-      <a href="https://coinglass.com"     target="_blank" rel="noopener">CoinGlass</a> ·
-      <a href="https://glassnode.com"     target="_blank" rel="noopener">Glassnode</a> ·
-      <a href="https://velo.xyz"          target="_blank" rel="noopener">Velo</a> ·
-      <a href="https://hashrateindex.com" target="_blank" rel="noopener">Hashrate Index</a> ·
-      <a href="https://checkonchain.com"  target="_blank" rel="noopener">CheckOnChain</a>
-    </div>
-    <div style="margin-top:4px;">
-      最后更新：<span id="footer-last-updated">—</span>
-      &nbsp;·&nbsp;
-      <strong>@0xRisingCapital</strong>
-    </div>
-  </footer>
-
-  <!-- Lightbox overlay -->
+  <!-- Lightbox -->
   <div class="lightbox-overlay" id="lightbox" onclick="closeLightbox()">
     <button class="lightbox-close" onclick="closeLightbox()">✕</button>
     <img class="lightbox-img" id="lightbox-img" src="" alt="" onclick="event.stopPropagation()"/>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="main.js"></script>
-  <script>
-    function openLightbox(src) {
-      document.getElementById("lightbox-img").src = src;
-      document.getElementById("lightbox").classList.add("active");
-      document.body.style.overflow = "hidden";
-    }
-    function closeLightbox() {
-      document.getElementById("lightbox").classList.remove("active");
-      document.getElementById("lightbox-img").src = "";
-      document.body.style.overflow = "";
-    }
-    document.addEventListener("keydown", e => {
-      if (e.key === "Escape") closeLightbox();
-    });
-  </script>
 </body>
 </html>

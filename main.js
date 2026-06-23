@@ -1,903 +1,783 @@
 // =====================================================
-//  HTX Research Dashboard — main.js  (v2)
-//  v1: posts.json feed, hero card, archive, lightbox
-//  v2: live ticker bar, tab navigation, market banner,
-//      key metrics snapshot
+//  HTX Research · BTC Dashboard — Agora redesign (v3)
+//  Vanilla recreation of the design_handoff prototype.
+//  Data layer kept: 今日报告 ← data/posts.json (+ market_brief),
+//  BTC chip ← live Binance/CoinGecko. The five analytical
+//  sections use the handoff mock shapes (real data TBD).
 // =====================================================
 
 const CHARTS_BASE = "assets/charts/";
-const DATA_URL    = "data/posts.json";
 
-// ══════════════════════════════════════════════════════
-//  V2 — LIVE TICKER BAR
-// ══════════════════════════════════════════════════════
+// ── helpers ───────────────────────────────────────────
+const esc = (s) => String(s ?? "")
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-// CORS note: Binance REST API works fine from browsers over HTTPS, including
-// GitHub Pages. If it fails (network block, rate limit), we silently fall back
-// to CoinGecko's free /simple/price endpoint which has no CORS restriction.
+let _gid = 0;
+const gid = () => "g" + (++_gid);
 
-async function fetchBTCPrice() {
-  // Primary: Binance
-  try {
-    const res = await fetch("https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT");
-    if (!res.ok) throw new Error("binance " + res.status);
-    const d = await res.json();
-    return {
-      price:     parseFloat(d.lastPrice),
-      change_pct: parseFloat(d.priceChangePercent)
-    };
-  } catch (_) {}
-
-  // Fallback: CoinGecko (no API key needed, no CORS restriction)
-  try {
-    const res = await fetch(
-      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true"
-    );
-    if (!res.ok) throw new Error("coingecko " + res.status);
-    const d = await res.json();
-    return {
-      price:      d.bitcoin.usd,
-      change_pct: d.bitcoin.usd_24h_change
-    };
-  } catch (_) {}
-
-  return null; // both failed
-}
-
-async function fetchFearGreed() {
-  try {
-    const res = await fetch("https://api.alternative.me/fng/?limit=1");
-    if (!res.ok) throw new Error("fng " + res.status);
-    const d = await res.json();
-    const entry = d.data[0];
-    return {
-      value:           parseInt(entry.value),
-      classification:  entry.value_classification
-    };
-  } catch (_) {
-    return null;
+// smooth-ish synthetic series (mock data only)
+function series(n, base, vol, drift) {
+  const out = []; let v = base;
+  for (let i = 0; i < n; i++) {
+    v += Math.sin(i * 0.7) * vol + (Math.random() - 0.5) * vol * 0.6 + drift;
+    out.push(Math.round(v * 100) / 100);
   }
+  return out;
 }
-
-// Live ETF daily net inflow via Vercel proxy, with silent fallback to etf.json.
-// Returns the same shape the metrics card expects:
-//   { net_flow_usd_million, label, date, source, note }
-async function fetchETFData() {
-  // Primary: live SoSoValue proxy
-  try {
-    const res = await fetch("/api/etf-metrics");
-    if (!res.ok) throw new Error("api " + res.status);
-    const json = await res.json();
-    const d = json.data || json;
-    const di = d.dailyNetInflow;
-    if (di && di.value != null) {
-      const usd = parseFloat(di.value);
-      const million = usd / 1e6;
-      return {
-        net_flow_usd_million: million,
-        label: (million >= 0 ? "+" : "-") + "$" + fmtUsdShort(Math.abs(usd)),
-        date: (di.lastUpdateDate || "").slice(0, 10),
-        source: "SoSoValue",
-        note: ""
-      };
-    }
-    throw new Error("no dailyNetInflow");
-  } catch (_) {}
-
-  // Fallback: manual etf.json
-  try {
-    const res = await fetch("data/etf.json?v=" + Date.now());
-    if (!res.ok) throw new Error("etf " + res.status);
-    return await res.json();
-  } catch (_) {
-    return null;
-  }
-}
-
-function fngClass(value) {
-  if (value <= 24) return "fng-extreme-fear";
-  if (value <= 49) return "fng-fear";
-  if (value <= 74) return "fng-greed";
-  return "fng-extreme-greed";
-}
-
-function fngLabel(classification) {
-  // Map English to Chinese
-  const map = {
-    "Extreme Fear": "极度恐惧",
-    "Fear":         "恐惧",
-    "Neutral":      "中性",
-    "Greed":        "贪婪",
-    "Extreme Greed":"极度贪婪"
-  };
-  return map[classification] || classification;
-}
-
-function renderBTCTicker(data) {
-  const el = document.getElementById("ticker-btc");
-  if (!el) return;
-  if (!data) {
-    el.innerHTML = `<span class="t-label">BTC</span> <span class="t-value">-- --</span>`;
-    return;
-  }
-  const price  = "$" + data.price.toLocaleString("en-US", { maximumFractionDigits: 0 });
-  const chg    = data.change_pct;
-  const dir    = chg >= 0 ? "up" : "down";
-  const arrow  = chg >= 0 ? "↑" : "↓";
-  const cls    = chg >= 0 ? "t-up" : "t-down";
-  el.innerHTML = `
-    <span class="t-label">BTC</span>
-    <span class="t-value">${price}</span>
-    <span class="t-change ${cls}">${arrow}${Math.abs(chg).toFixed(2)}%</span>`;
-}
-
-function renderFNGTicker(data) {
-  const el = document.getElementById("ticker-fng");
-  if (!el) return;
-  if (!data) {
-    el.innerHTML = `<span class="t-label">恐惧贪婪指数</span> <span class="t-value">-- --</span>`;
-    return;
-  }
-  const cls  = fngClass(data.value);
-  const label = fngLabel(data.classification);
-  el.innerHTML = `
-    <span class="t-label">恐惧贪婪指数</span>
-    <span class="t-value ${cls}">${data.value} · ${label}</span>`;
-}
-
-function renderETFTicker(data) {
-  const el = document.getElementById("ticker-etf");
-  if (!el) return;
-  if (!data) {
-    el.innerHTML = `<span class="t-label">ETF净流入</span> <span class="t-value">-- --</span>`;
-    return;
-  }
-  const flow = data.net_flow_usd_million;
-  const cls  = flow > 0 ? "t-up" : flow < 0 ? "t-down" : "t-neut";
-  const dateStr = data.date ? data.date.slice(5) : "";
-  el.innerHTML = `
-    <span class="t-label">ETF净流入</span>
-    <span class="t-value ${cls}">${data.label} · ${dateStr}</span>
-    <span class="ticker-manual-tag">手动</span>`;
-}
-
-async function initTicker() {
-  // Fetch all three in parallel
-  const [btc, fng, etf] = await Promise.all([
-    fetchBTCPrice(),
-    fetchFearGreed(),
-    fetchETFData()
-  ]);
-
-  renderBTCTicker(btc);
-  renderFNGTicker(fng);
-  renderETFTicker(etf);
-
-  // Auto-refresh: BTC every 30s, F&G every 5min
-  setInterval(async () => {
-    renderBTCTicker(await fetchBTCPrice());
-  }, 30_000);
-
-  setInterval(async () => {
-    renderFNGTicker(await fetchFearGreed());
-  }, 300_000);
-}
-
-// ══════════════════════════════════════════════════════
-//  V2 — TAB NAVIGATION
-// ══════════════════════════════════════════════════════
-
-function initTabs() {
-  const tabs   = document.querySelectorAll(".header-tab-btn");
-  const panels = document.querySelectorAll(".page-panel");
-
-  function activate(targetPage) {
-    tabs.forEach(t => t.classList.toggle("active", t.dataset.page === targetPage));
-    panels.forEach(p => p.classList.toggle("active", p.dataset.page === targetPage));
-    if (targetPage === "etf") initETFPage();   // lazy-load on first open
-  }
-
-  function goHome() {
-    // Deactivate all tabs, show summary
-    tabs.forEach(t => t.classList.remove("active"));
-    panels.forEach(p => p.classList.toggle("active", p.dataset.page === "summary"));
-  }
-
-  tabs.forEach(tab => {
-    tab.addEventListener("click", () => activate(tab.dataset.page));
-  });
-
-  // Logo always returns to summary/home
-  const logo = document.getElementById("logo-home");
-  if (logo) logo.addEventListener("click", e => { e.preventDefault(); goHome(); });
-
-  // Default: show summary page, no tab active
-  goHome();
-}
-
-// ══════════════════════════════════════════════════════
-//  V2 — MARKET BANNER + METRICS SNAPSHOT
-// ══════════════════════════════════════════════════════
-
-async function initSummaryExtras() {
-  await Promise.all([loadMarketBanner(), loadMetricsGrid()]);
-}
-
-async function loadMarketBanner() {
-  const el = document.getElementById("market-banner");
-  if (!el) return;
-  try {
-    const res = await fetch("data/market_brief.json?v=" + Date.now());
-    if (!res.ok) throw new Error();
-    const d = await res.json();
-
-    const stanceClass = {
-      "偏多": "stance-bull", "极度看多": "stance-bull",
-      "偏空": "stance-bear", "极度看空": "stance-bear",
-      "中性": "stance-neutral",
-      "bull": "stance-bull", "bear": "stance-bear", "neutral": "stance-neutral"
-    }[d.stance_color || d.stance] || "stance-neutral";
-
-    el.innerHTML = `
-      <div class="banner-top">
-        <span class="banner-state-pill">当前市场状态</span>
-        <span class="banner-label">${d.state_label || ""}</span>
-        <span class="banner-date">${formatDate(d.date)}</span>
-      </div>
-      <div class="banner-brief">${d.brief || ""}</div>
-      <span class="banner-stance ${stanceClass}">${d.stance || ""}</span>`;
-  } catch (_) {
-    el.innerHTML = `<div class="banner-brief" style="color:var(--grey-text)">市场简报暂未更新</div>`;
-  }
-}
-
-// ── Metrics grid: BTC (live) | F&G (live) | ETF (manual) | OI (manual) ──
-
-function metricCard(label, value, delta, deltaDir, source, liveTag = false) {
-  const deltaClass = { up: "delta-up", down: "delta-down", neutral: "delta-neut" }[deltaDir] || "delta-neut";
-  const arrow = deltaDir === "up" ? "↑ " : deltaDir === "down" ? "↓ " : "";
-  const liveHtml = liveTag
-    ? `<span style="font-size:9px;background:rgba(34,197,94,0.15);color:#16a34a;border-radius:3px;padding:1px 5px;margin-left:4px;font-weight:600;">LIVE</span>`
-    : `<span style="font-size:9px;background:rgba(107,114,128,0.12);color:#6b7280;border-radius:3px;padding:1px 5px;margin-left:4px;">手动</span>`;
-  return `
-    <div class="metric-card">
-      <div class="metric-label">${label}${liveHtml}</div>
-      <div class="metric-value">${value}</div>
-      <div class="metric-delta ${deltaClass}">${arrow}${delta}</div>
-      <div class="metric-source">${source}</div>
-    </div>`;
-}
-
-async function loadMetricsGrid() {
-  const el = document.getElementById("metrics-grid");
-  if (!el) return;
-
-  // Seed immediately with loading placeholders
-  el.innerHTML = ["BTC实时价格","恐惧贪婪指数","ETF净流入","未平仓合约 OI"].map(label =>
-    `<div class="metric-card"><div class="metric-label">${label}</div><div class="metric-value" style="color:var(--grey-text);font-size:16px;">加载中…</div></div>`
-  ).join("");
-
-  // Fetch all sources in parallel
-  const [btc, fng, etf, oi] = await Promise.all([
-    fetchBTCPrice(),
-    fetchFearGreed(),
-    fetchETFData(),
-    fetch("data/metrics_snapshot.json?v=" + Date.now()).then(r => r.ok ? r.json() : null).catch(() => null)
-  ]);
-
-  // Card 1 — BTC live price
-  let btcCard;
-  if (btc) {
-    const price = "$" + btc.price.toLocaleString("en-US", { maximumFractionDigits: 0 });
-    const chg   = btc.change_pct;
-    const dir   = chg >= 0 ? "up" : "down";
-    const arrow = chg >= 0 ? "↑" : "↓";
-    btcCard = metricCard("BTC 实时价格", price, `${arrow} ${Math.abs(chg).toFixed(2)}% 24h`, dir, "Binance", true);
-  } else {
-    btcCard = metricCard("BTC 实时价格", "-- --", "数据不可用", "neutral", "Binance", true);
-  }
-
-  // Card 2 — Fear & Greed live
-  let fngCard;
-  if (fng) {
-    const cls   = fngClass(fng.value);
-    const label = fngLabel(fng.classification);
-    const dir   = fng.value >= 50 ? "up" : "down";
-    fngCard = metricCard("恐惧贪婪指数", `<span class="${cls}">${label}</span>`, `${fng.value} / 100`, dir, "Alternative.me", true);
-  } else {
-    fngCard = metricCard("恐惧贪婪指数", "-- --", "数据不可用", "neutral", "Alternative.me", true);
-  }
-
-  // Card 3 — ETF flow manual
-  let etfCard;
-  if (etf) {
-    const flow  = etf.net_flow_usd_million;
-    const dir   = flow > 0 ? "up" : flow < 0 ? "down" : "neutral";
-    const dateStr = etf.date ? etf.date.slice(5) : "";
-    etfCard = metricCard("ETF 净流入", etf.label, dateStr + (etf.note ? " · " + etf.note : ""), dir, etf.source || "SoSoValue", true);
-  } else {
-    etfCard = metricCard("ETF 净流入", "-- --", "暂无数据", "neutral", "SoSoValue", true);
-  }
-
-  // Card 4 — OI manual
-  let oiCard;
-  if (oi) {
-    const dir = { up:"up", down:"down", neutral:"neutral" }[oi.oi_delta_dir] || "neutral";
-    oiCard = metricCard("未平仓合约 OI", oi.oi_value || "--", oi.oi_delta || "", dir, oi.oi_source || "CoinGlass");
-  } else {
-    oiCard = metricCard("未平仓合约 OI", "-- --", "暂无数据", "neutral", "CoinGlass");
-  }
-
-  el.innerHTML = btcCard + fngCard + etfCard + oiCard;
-
-  // Refresh live cards every 30s
-  setInterval(async () => {
-    const [b, f] = await Promise.all([fetchBTCPrice(), fetchFearGreed()]);
-    const cards = el.querySelectorAll(".metric-card");
-
-    if (cards[0] && b) {
-      const price = "$" + b.price.toLocaleString("en-US", { maximumFractionDigits: 0 });
-      const chg   = b.change_pct;
-      const dir   = chg >= 0 ? "up" : "down";
-      cards[0].querySelector(".metric-value").textContent = price;
-      const d = cards[0].querySelector(".metric-delta");
-      d.className = "metric-delta " + (dir === "up" ? "delta-up" : "delta-down");
-      d.textContent = (chg >= 0 ? "↑ " : "↓ ") + Math.abs(chg).toFixed(2) + "% 24h";
-    }
-
-    if (cards[1] && f) {
-      const cls   = fngClass(f.value);
-      const label = fngLabel(f.classification);
-      const dir   = f.value >= 50 ? "up" : "down";
-      cards[1].querySelector(".metric-value").innerHTML = `<span class="${cls}">${label}</span>`;
-      const d = cards[1].querySelector(".metric-delta");
-      d.className = "metric-delta " + (dir === "up" ? "delta-up" : "delta-down");
-      d.textContent = f.value + " / 100";
-    }
-  }, 30_000);
-}
-
-// ══════════════════════════════════════════════════════
-//  V1 — HELPERS (unchanged)
-// ══════════════════════════════════════════════════════
-
-function formatDate(iso) {
-  const d = new Date(iso + "T00:00:00");
-  return d.toLocaleDateString("zh-CN", {
-    year:  "numeric",
-    month: "long",
-    day:   "numeric"
-  });
-}
-
-function verdictLevel(verdict) {
-  const map = {
-    "极度看空": 1, "偏空": 2, "中性": 3, "偏多": 4, "极度看多": 5,
-    "red": 2, "neutral": 3, "green": 4,
-    "very_bearish": 1, "very_bullish": 5
-  };
-  return map[verdict] || 3;
-}
-
-function verdictMeter(verdict) {
-  const level = verdictLevel(verdict);
-  const segs = [1, 2, 3, 4, 5].map(i =>
-    `<div class="meter-seg${i <= level ? " lvl-" + level : ""}"></div>`
-  ).join("");
-  return `
-    <div class="verdict-meter">
-      <div class="meter-bar">${segs}</div>
-      <div class="meter-label lvl-${level}">${verdict}</div>
-    </div>`;
-}
-
-function verdictClass(verdict) {
-  const level = verdictLevel(verdict);
-  const map = { 1: "verdict-very-bearish", 2: "verdict-red", 3: "verdict-neutral", 4: "verdict-green", 5: "verdict-very-bullish" };
-  return map[level] || "verdict-neutral";
-}
-
-function chartImgOrPlaceholder(filename) {
-  const src = CHARTS_BASE + filename;
-  return `
-    <div class="chart-img-wrap">
-      <img
-        src="${src}"
-        alt="${filename}"
-        onclick="openLightbox('${src}')"
-        onerror="this.closest('.chart-img-wrap').innerHTML = chartPlaceholderHTML()"
-        loading="lazy"
-      />
-    </div>`;
-}
-
-window.chartPlaceholderHTML = function() {
-  return `
-    <div class="chart-placeholder">
-      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-        <rect x="3" y="3" width="18" height="18" rx="2"/>
-        <path d="M3 9h18M9 21V9"/>
-      </svg>
-      <span>图表待上传</span>
-    </div>`;
-};
-
-function indicatorPills(indicators, heroMode = false) {
-  if (!indicators) return "";
-  const fields = [
-    { key: "btc_price",    label: "BTC",    id: "indicator-btc-price"    },
-    { key: "funding_rate", label: "资金费率", id: "indicator-funding-rate" },
-    { key: "etf_flow",     label: "ETF净流",  id: "indicator-etf-flow"     },
-    { key: "oi",           label: "OI",     id: "indicator-oi"           }
-  ];
-  return fields.map(f => {
-    const val = indicators[f.key];
-    if (!val) return "";
-    return `
-      <div class="indicator-pill" id="${heroMode ? f.id : ""}">
-        <span class="pill-label">${f.label}</span>
-        <span class="pill-value">${val}</span>
-      </div>`;
-  }).join("");
-}
-
-// ── Hero Card ─────────────────────────────────────────
-
-function renderHero(post) {
-  const chartsCount = post.charts ? post.charts.length : 0;
-  const gridClass = chartsCount === 1 ? "charts-1" : chartsCount === 2 ? "charts-2" : "charts-many";
-
-  const chartsHTML = (post.charts || []).map(c => `
-    <div class="chart-item">
-      ${chartImgOrPlaceholder(c.filename)}
-      <div>
-        <div class="chart-caption">${c.caption || ""}</div>
-        <div class="chart-source">${c.source || ""}</div>
-      </div>
-    </div>`).join("");
-
-  const bulletsHTML = (post.bullets || []).map(b => `<li>${b}</li>`).join("");
-
-  return `
-    <div class="hero-card">
-      <div class="hero-card-inner">
-        <div class="hero-left">
-          <div class="hero-meta">
-            <span class="hero-date">${formatDate(post.date)}</span>
-            ${verdictMeter(post.verdict)}
-          </div>
-          <div class="hero-title">${post.title}</div>
-          <ul class="hero-bullets">${bulletsHTML}</ul>
-        </div>
-        <div class="hero-right">
-          <div class="charts-grid ${gridClass}">${chartsHTML}</div>
-        </div>
-      </div>
-    </div>`;
-}
-
-// ── Archive Card ──────────────────────────────────────
-
-function renderArchiveCard(post) {
-  const previewBullets = (post.bullets || []).slice(0, 2).join("　·　");
-  const firstChart = post.charts && post.charts[0] ? post.charts[0] : null;
-
-  const thumbSrc = firstChart ? CHARTS_BASE + firstChart.filename : "";
-  const thumbHTML = thumbSrc
-    ? `<img src="${thumbSrc}" alt="" loading="lazy"/>`
-    : `<div class="archive-thumb-placeholder">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <rect x="3" y="3" width="18" height="18" rx="2"/>
-        </svg>
-      </div>`;
-
-  const chartsCount  = post.charts ? post.charts.length : 0;
-  const archiveGridClass = chartsCount === 1 ? "charts-1" : "";
-
-  const allChartsHTML = (post.charts || []).map(c => `
-    <div class="archive-chart-item">
-      <div class="archive-chart-img">
-        <img src="${CHARTS_BASE + c.filename}" alt=""
-          onclick="openLightbox('${CHARTS_BASE + c.filename}')"
-          onerror="this.style.opacity='0'"
-          loading="lazy"/>
-      </div>
-      <div class="chart-caption">${c.caption || ""}</div>
-      <div class="chart-source">${c.source || ""}</div>
-    </div>`).join("");
-
-  const allBulletsHTML = (post.bullets || []).map(b => `<li>${b}</li>`).join("");
-
-  return `
-    <div class="archive-card" data-id="${post.id}">
-      <div class="archive-card-header" onclick="toggleArchiveCard(this.closest('.archive-card'))">
-        <div class="archive-thumb">${thumbHTML}</div>
-        <div class="archive-meta">
-          <div class="archive-top">
-            <span class="archive-date">${formatDate(post.date)}</span>
-            <span class="verdict-badge ${verdictClass(post.verdict)}">${post.verdict}</span>
-          </div>
-          <div class="archive-bullets-preview">${previewBullets}</div>
-        </div>
-        <svg class="archive-expand-icon" width="18" height="18" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" stroke-width="2">
-          <path d="M6 9l6 6 6-6"/>
-        </svg>
-      </div>
-      <div class="archive-card-body">
-        <div class="archive-body-left">
-          <ul>${allBulletsHTML}</ul>
-        </div>
-        <div class="archive-body-right">
-          <div class="archive-charts-grid ${archiveGridClass}">${allChartsHTML}</div>
-        </div>
-      </div>
-    </div>`;
-}
-
-window.toggleArchiveCard = function(card) {
-  card.classList.toggle("expanded");
-};
-
-// ── Posts feed (摘要 page) ────────────────────────────
-
-async function initPostsFeed() {
-  const heroEl    = document.getElementById("hero-section");
-  const archiveEl = document.getElementById("archive-section");
-  const footerEl  = document.getElementById("footer-last-updated");
-
-  if (!heroEl) return;
-
-  try {
-    const res = await fetch(DATA_URL + "?v=" + Date.now());
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    const posts = await res.json();
-
-    if (!posts || posts.length === 0) {
-      heroEl.innerHTML = `<div class="empty-state"><h3>暂无数据</h3><p>请通过管理页面添加日报</p></div>`;
-      return;
-    }
-
-    posts.sort((a, b) => b.date.localeCompare(a.date));
-    const latest  = posts[0];
-    const archive = posts.slice(1);
-
-    heroEl.innerHTML = renderHero(latest);
-
-    if (archive.length > 0) {
-      archiveEl.innerHTML = archive.map(renderArchiveCard).join("");
-    } else {
-      archiveEl.innerHTML = `<div class="empty-state" style="padding:24px 0;color:var(--grey-text);font-size:13px;">暂无历史记录</div>`;
-    }
-
-    if (footerEl) footerEl.textContent = formatDate(latest.date);
-
-  } catch (err) {
-    console.error("Failed to load posts:", err);
-    heroEl.innerHTML = `
-      <div class="empty-state">
-        <h3>数据加载失败</h3>
-        <p style="font-size:13px;margin-top:6px;">请检查 data/posts.json 是否存在</p>
-      </div>`;
-  }
-}
-
-// ══════════════════════════════════════════════════════
-//  BOOT
-// ══════════════════════════════════════════════════════
-
-document.addEventListener("DOMContentLoaded", () => {
-  initTabs();
-  initSummaryExtras();
-  initPostsFeed();
+const DAYS = Array.from({ length: 30 }, (_, i) => {
+  const d = new Date(2026, 5, 23); d.setDate(d.getDate() - (29 - i));
+  return `${d.getMonth() + 1}/${d.getDate()}`;
 });
 
-// ══════════════════════════════════════════════════════
-//  V3 — ETF资金流 PAGE (live SoSoValue via /api proxy)
-// ══════════════════════════════════════════════════════
+// =====================================================
+//  MOCK DATA  (handoff shapes — analytical sections)
+// =====================================================
+const DASH = {
+  meta: { updated: "—", handle: "@0xRisingCapital", btcPrice: 0, btcChange: 0 },
+  news: [
+    { tag: "ETF", time: "12分钟前", tone: "up", text: "BlackRock IBIT 单日净流入 1.84 亿美元，连续第四周净申购" },
+    { tag: "宏观", time: "38分钟前", tone: "up", text: "美联储 6 月点阵图暗示年内两次降息，风险资产普涨" },
+    { tag: "机构", time: "1小时前", tone: "up", text: "Strategy 增持 4,200 枚 BTC，总持仓突破 33.1 万枚" },
+    { tag: "链上", time: "2小时前", tone: "down", text: "交易所 BTC 余额降至 6 年新低，长期持有者持续吸筹" },
+    { tag: "衍生品", time: "3小时前", tone: "down", text: "24h 全网爆仓 1.84 亿美元，多头占比 66%" },
+    { tag: "矿工", time: "4小时前", tone: "up", text: "下次难度调整预计 +4.8%，全网算力创历史新高 742 EH/s" },
+    { tag: "监管", time: "5小时前", tone: "neutral", text: "香港证监会批准两只现货比特币 ETF 扩大零售额度" },
+    { tag: "市场", time: "6小时前", tone: "up", text: "BTC 站上 71,800 美元，24 小时涨幅 2.34%" },
+  ],
+  etf: {
+    days: DAYS,
+    netFlow: series(30, 120, 180, 4),
+    cumulative: (() => { const s = series(30, 80, 160, 6); let acc = 14200; return s.map((x) => (acc += x)); })(),
+    summary: [
+      { label: "净流入 · 今日", value: "+$312M", chg: 18.5, sub: "5日均 +$214M" },
+      { label: "净流入 · 本周", value: "+$1.49B", chg: 9.2, sub: "连续 4 周净流入" },
+      { label: "ETF 总持仓", value: "1,182,400 BTC", chg: 0.42, sub: "≈ $84.9B AUM" },
+      { label: "占流通供应", value: "5.97%", chg: 0.06, sub: "+0.31% 月环比" },
+    ],
+    funds: [
+      { name: "IBIT", issuer: "BlackRock", flow: 184, aum: 41200, share: 48.5, on: true },
+      { name: "FBTC", issuer: "Fidelity", flow: 62, aum: 12800, share: 15.1, on: true },
+      { name: "BITB", issuer: "Bitwise", flow: 21, aum: 3960, share: 4.7, on: true },
+      { name: "ARKB", issuer: "ARK 21Shares", flow: 18, aum: 3420, share: 4.0, on: true },
+      { name: "GBTC", issuer: "Grayscale", flow: -34, aum: 18900, share: 22.2, on: false },
+      { name: "HODL", issuer: "VanEck", flow: 9, aum: 1240, share: 1.5, on: true },
+      { name: "BTCO", issuer: "Invesco", flow: 6, aum: 980, share: 1.2, on: true },
+      { name: "EZBC", issuer: "Franklin", flow: 4, aum: 720, share: 0.8, on: true },
+    ],
+  },
+  inst: {
+    summary: [
+      { label: "上市公司储备", value: "612,400 BTC", chg: 1.8, sub: "≈ $44.0B" },
+      { label: "Strategy (MSTR)", value: "331,200 BTC", chg: 2.1, sub: "成本均价 $42,180" },
+      { label: "本周新增披露", value: "+8,940 BTC", chg: 12.0, sub: "6 家公司" },
+      { label: "未实现盈亏", value: "+$18.7B", chg: 5.4, sub: "公司储备整体" },
+    ],
+    holders: [
+      { name: "Strategy", ticker: "MSTR", btc: 331200, cost: 42180, pnl: 41.2 },
+      { name: "MARA Holdings", ticker: "MARA", btc: 46210, cost: 39400, pnl: 49.6 },
+      { name: "Riot Platforms", ticker: "RIOT", btc: 19120, cost: 41200, pnl: 43.0 },
+      { name: "Tesla", ticker: "TSLA", btc: 11509, cost: 32800, pnl: 71.0 },
+      { name: "Hut 8", ticker: "HUT", btc: 10310, cost: 28900, pnl: 94.0 },
+      { name: "Coinbase", ticker: "COIN", btc: 9480, cost: 35100, pnl: 60.0 },
+      { name: "Block Inc", ticker: "XYZ", btc: 8210, cost: 30200, pnl: 86.0 },
+      { name: "Galaxy Digital", ticker: "GLXY", btc: 6540, cost: 44100, pnl: 28.4 },
+    ],
+    growth: series(30, 560000, 1800, 1700).map((x) => Math.round(x)),
+    days: DAYS,
+  },
+  deriv: {
+    summary: [
+      { label: "未平仓 OI", value: "$38.4B", chg: -1.1, sub: "BTC 永续+交割" },
+      { label: "加权资金费率", value: "+0.0118%", chg: 4.2, sub: "8h · OI 加权" },
+      { label: "24h 爆仓", value: "$184M", chg: 32.0, sub: "多头 $121M" },
+      { label: "期权 25Δ 偏斜", value: "-3.2%", chg: -1.4, sub: "看涨偏好" },
+    ],
+    funding: series(30, 0.01, 0.012, 0).map((x) => Math.round(x * 10000) / 10000),
+    oi: series(30, 34, 3.2, 0.18).map((x) => Math.round(x * 100) / 100),
+    days: DAYS,
+    liq: [
+      { ex: "Binance", long: 48, short: 22 }, { ex: "Bybit", long: 31, short: 14 },
+      { ex: "OKX", long: 24, short: 11 }, { ex: "Hyperliquid", long: 12, short: 9 },
+      { ex: "Deribit", long: 6, short: 5 },
+    ],
+    longShort: 1.34, iv: 52.4,
+  },
+  miner: {
+    summary: [
+      { label: "矿工净转出 (7d)", value: "-2,140 BTC", chg: -8.0, sub: "净流出交易所" },
+      { label: "矿工储备", value: "1,812,000 BTC", chg: -0.12, sub: "持续下降" },
+      { label: "哈希价格", value: "$48.2 / PH/s", chg: -2.6, sub: "盈利能力承压" },
+      { label: "全网算力", value: "742 EH/s", chg: 1.4, sub: "7日均" },
+    ],
+    hashrate: series(30, 690, 22, 1.8).map((x) => Math.round(x)),
+    hashprice: series(30, 52, 3.6, -0.18).map((x) => Math.round(x * 10) / 10),
+    days: DAYS,
+    rigs: [
+      { model: "Antminer S21 Pro", eff: 15.0, status: "盈利", margin: 62 },
+      { model: "Antminer S21", eff: 17.5, status: "盈利", margin: 48 },
+      { model: "Whatsminer M60S", eff: 18.5, status: "盈利", margin: 41 },
+      { model: "Antminer S19 XP", eff: 21.5, status: "边际", margin: 19 },
+      { model: "Antminer S19j Pro", eff: 29.5, status: "亏损", margin: -14 },
+    ],
+    shutdown: { low: 34200, high: 58900, price: 71840 }, difficulty: 4.8,
+  },
+  onchain: {
+    summary: [
+      { label: "MVRV-Z Score", value: "2.41", chg: 0.8, sub: "中性偏热" },
+      { label: "SOPR", value: "1.034", chg: 0.6, sub: "盈利了结" },
+      { label: "交易所净流量 (7d)", value: "-18,400 BTC", chg: -22.0, sub: "净流出" },
+      { label: "LTH 供应", value: "14.9M BTC", chg: 0.3, sub: "75.4% 流通" },
+    ],
+    mvrv: series(30, 2.0, 0.22, 0.014).map((x) => Math.round(x * 100) / 100),
+    sopr: series(30, 1.0, 0.03, 0).map((x) => Math.round(x * 1000) / 1000),
+    days: DAYS,
+    cohorts: [
+      { label: "长期持有者 LTH", supply: 75.4, pnl: 0.88 },
+      { label: "短期持有者 STH", supply: 24.6, pnl: 0.12 },
+    ],
+    netflow: series(30, -2, 4.5, 0).map((x) => Math.round(x * 100) / 100),
+  },
+};
 
-let _etfLoaded = false;        // guard so we only fetch once
-let _etfInflowChart = null;    // Chart.js instances
-let _etfRankChart   = null;
-let _etfHistoryRaw  = [];      // cached merged history for range toggle
+const TONE = { up: "var(--pos)", down: "var(--neg)", neutral: "var(--text-3)" };
 
-// ── USD formatting: auto-scale to M / B with 2 decimals ──
-function fmtUsdShort(absUsd) {
-  if (absUsd >= 1e9) return (absUsd / 1e9).toFixed(2) + "B";
-  if (absUsd >= 1e6) return (absUsd / 1e6).toFixed(2) + "M";
-  if (absUsd >= 1e3) return (absUsd / 1e3).toFixed(2) + "K";
-  return absUsd.toFixed(2);
+// =====================================================
+//  SVG CHART PRIMITIVES  (return markup strings)
+// =====================================================
+const VB_W = 600;
+
+function nicePath(values, w, h, pad) {
+  const min = Math.min(...values), max = Math.max(...values);
+  const span = (max - min) || 1;
+  const innerW = w - pad * 2, innerH = h - pad * 2;
+  const pts = values.map((v, i) => [
+    pad + (i / (values.length - 1)) * innerW,
+    pad + innerH - ((v - min) / span) * innerH,
+  ]);
+  let d = `M ${pts[0][0]},${pts[0][1]}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+    d += ` C ${p1[0] + (p2[0] - p0[0]) / 6},${p1[1] + (p2[1] - p0[1]) / 6} ${p2[0] - (p3[0] - p1[0]) / 6},${p2[1] - (p3[1] - p1[1]) / 6} ${p2[0]},${p2[1]}`;
+  }
+  return { d, pts };
 }
-// Signed "$X.XXB" style, keeps +/- sign
-function fmtUsdSigned(usd) {
-  const n = parseFloat(usd);
-  if (isNaN(n)) return "--";
-  return (n < 0 ? "-" : "") + "$" + fmtUsdShort(Math.abs(n));
-}
-function numOr(v, d = 0) { const n = parseFloat(v); return isNaN(n) ? d : n; }
 
-async function initETFPage() {
-  if (_etfLoaded) return;
-  _etfLoaded = true;
+function areaChart(values, height = 200, color = "var(--accent)") {
+  const w = VB_W, h = height, pad = 14;
+  const { d, pts } = nicePath(values, w, h, pad);
+  const last = pts[pts.length - 1];
+  const area = `${d} L ${last[0]},${h - pad} L ${pts[0][0]},${h - pad} Z`;
+  const id = gid(), ticks = 4;
+  let lines = "";
+  for (let i = 0; i < ticks; i++) {
+    const y = pad + (i / (ticks - 1)) * (h - pad * 2);
+    lines += `<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="var(--border)" stroke-width="1"/>`;
+  }
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${height}" preserveAspectRatio="none" style="display:block;overflow:visible">
+    <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${color}" stop-opacity="0.28"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+    </linearGradient></defs>
+    ${lines}
+    <path d="${area}" fill="url(#${id})"/>
+    <path d="${d}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+    <circle cx="${last[0]}" cy="${last[1]}" r="3.5" fill="${color}"/>
+    <circle cx="${last[0]}" cy="${last[1]}" r="6.5" fill="none" stroke="${color}" stroke-width="1.5" opacity="0.4"/>
+  </svg>`;
+}
+
+function flowBars(values, height = 200, color = "var(--accent)", neg = "var(--neg)") {
+  const w = VB_W, h = height, pad = 12;
+  const max = Math.max(...values.map(Math.abs)) || 1;
+  const zeroY = h / 2, bw = (w - pad * 2) / values.length;
+  let bars = "";
+  values.forEach((v, i) => {
+    const bh = (Math.abs(v) / max) * (h / 2 - pad);
+    const x = pad + i * bw + bw * 0.18;
+    const y = v >= 0 ? zeroY - bh : zeroY;
+    bars += `<rect x="${x}" y="${y}" width="${bw * 0.64}" height="${Math.max(bh, 1)}" rx="2" fill="${v >= 0 ? color : neg}" opacity="${i === values.length - 1 ? 1 : 0.82}"/>`;
+  });
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${height}" preserveAspectRatio="none" style="display:block">
+    <line x1="0" y1="${zeroY}" x2="${w}" y2="${zeroY}" stroke="var(--border-strong)" stroke-width="1"/>${bars}</svg>`;
+}
+
+function lineChart(values, values2, height = 200, color = "var(--accent)", color2 = "var(--text-3)") {
+  const w = VB_W, h = height, pad = 14;
+  const all = values2 ? values.concat(values2) : values;
+  const min = Math.min(...all), max = Math.max(...all), span = (max - min) || 1;
+  const toPath = (vals) => {
+    const innerW = w - pad * 2, innerH = h - pad * 2;
+    const pts = vals.map((v, i) => [pad + (i / (vals.length - 1)) * innerW, pad + innerH - ((v - min) / span) * innerH]);
+    let d = `M ${pts[0][0]},${pts[0][1]}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+      d += ` C ${p1[0] + (p2[0] - p0[0]) / 6},${p1[1] + (p2[1] - p0[1]) / 6} ${p2[0] - (p3[0] - p1[0]) / 6},${p2[1] - (p3[1] - p1[1]) / 6} ${p2[0]},${p2[1]}`;
+    }
+    return { d, last: pts[pts.length - 1] };
+  };
+  const a = toPath(values), b = values2 ? toPath(values2) : null;
+  let lines = "";
+  for (let i = 0; i < 4; i++) { const y = pad + (i / 3) * (h - pad * 2); lines += `<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="var(--border)" stroke-width="1"/>`; }
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${height}" preserveAspectRatio="none" style="display:block;overflow:visible">
+    ${lines}
+    ${b ? `<path d="${b.d}" fill="none" stroke="${color2}" stroke-width="1.6" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"/>` : ""}
+    <path d="${a.d}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+    <circle cx="${a.last[0]}" cy="${a.last[1]}" r="3.5" fill="${color}"/></svg>`;
+}
+
+function sparkline(values, color = "var(--accent)", height = 36, width = 110) {
+  const { d } = nicePath(values, width, height, 3);
+  return `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" style="display:block">
+    <path d="${d}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>`;
+}
+
+function donut(data, size = 180, thickness = 22) {
+  const total = data.reduce((s, d) => s + d.value, 0);
+  const r = size / 2 - thickness / 2, c = 2 * Math.PI * r;
+  let offset = 0, segs = "";
+  data.forEach((d) => {
+    const dash = (d.value / total) * c;
+    segs += `<circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${d.color}" stroke-width="${thickness}" stroke-dasharray="${dash} ${c - dash}" stroke-dashoffset="${-offset}" stroke-linecap="butt"/>`;
+    offset += dash;
+  });
+  return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}"><g transform="rotate(-90 ${size / 2} ${size / 2})">${segs}</g></svg>`;
+}
+
+function gauge(value, min = 0, max = 100, size = 200, label = "", sub = "") {
+  const r = size / 2 - 16, cx = size / 2, cy = size / 2;
+  const a0 = Math.PI, a1 = 0;
+  const frac = Math.max(0, Math.min(1, (value - min) / (max - min)));
+  const ang = a0 + (a1 - a0) * frac;
+  const pt = (a) => [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+  const [sx, sy] = pt(a0), [ex, ey] = pt(a1), [px, py] = pt(ang);
+  return `<svg viewBox="0 0 ${size} ${size * 0.62}" width="100%" height="${size * 0.62}" style="display:block">
+    <path d="M ${sx},${sy} A ${r},${r} 0 1 1 ${ex},${ey}" fill="none" stroke="var(--surface-3)" stroke-width="12" stroke-linecap="round"/>
+    <path d="M ${sx},${sy} A ${r},${r} 0 ${frac > 0.5 ? 1 : 0} 1 ${px},${py}" fill="none" stroke="var(--accent)" stroke-width="12" stroke-linecap="round"/>
+    <circle cx="${px}" cy="${py}" r="6" fill="var(--accent)"/>
+    <text x="${cx}" y="${cy - 6}" text-anchor="middle" font-family="var(--num-font)" font-weight="700" font-size="30" fill="var(--text)" style="letter-spacing:-0.02em">${esc(label)}</text>
+    <text x="${cx}" y="${cy + 14}" text-anchor="middle" font-size="11.5" fill="var(--text-3)">${esc(sub)}</text></svg>`;
+}
+
+function stackedRows(rows) {
+  const max = Math.max(...rows.map((r) => r.long + r.short)) || 1;
+  return `<div style="display:flex;flex-direction:column;gap:12px">` + rows.map((r) => `
+    <div style="display:flex;align-items:center;gap:12px">
+      <div style="width:92px;font-size:12.5px;font-weight:600">${esc(r.ex)}</div>
+      <div style="flex:1;display:flex;height:22px;border-radius:5px;overflow:hidden;background:var(--surface-3)">
+        <div style="width:${(r.long / max) * 100}%;background:var(--neg);opacity:.9"></div>
+        <div style="width:${(r.short / max) * 100}%;background:var(--pos);opacity:.85"></div>
+      </div>
+      <div class="num" style="width:64px;text-align:right;font-size:12.5px;color:var(--text-2)">$${r.long + r.short}M</div>
+    </div>`).join("") + `</div>`;
+}
+
+// =====================================================
+//  AGORA ART  (SVG strings)
+// =====================================================
+function column(x, top, bottom, w) {
+  const flutes = [0.3, 0.5, 0.7].map((f) => x - w / 2 + w * f);
+  return `<g>
+    <rect x="${x - w / 2}" y="${top}" width="${w}" height="${bottom - top}" fill="var(--surface)" stroke="var(--border-strong)" stroke-width="1.5"/>
+    ${flutes.map((fx) => `<line x1="${fx}" y1="${top + 4}" x2="${fx}" y2="${bottom - 4}" stroke="var(--border)" stroke-width="1.2"/>`).join("")}
+    <rect x="${x - w / 2 - 5}" y="${top - 8}" width="${w + 10}" height="9" fill="var(--surface-2)" stroke="var(--border-strong)" stroke-width="1.5"/>
+    <rect x="${x - w / 2 - 5}" y="${bottom}" width="${w + 10}" height="9" fill="var(--surface-2)" stroke="var(--border-strong)" stroke-width="1.5"/>
+  </g>`;
+}
+function classicalScene() {
+  const sky = gid(), glow = gid(), cols = [150, 217, 284, 351, 418, 485];
+  return `<svg viewBox="0 0 640 420" preserveAspectRatio="xMidYMid slice" style="display:block;width:100%;height:100%">
+    <defs>
+      <linearGradient id="${sky}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="var(--accent-soft)"/><stop offset="62%" stop-color="var(--surface-2)"/><stop offset="100%" stop-color="var(--surface)"/>
+      </linearGradient>
+      <radialGradient id="${glow}"><stop offset="0%" stop-color="var(--accent)" stop-opacity="0.55"/><stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/></radialGradient>
+    </defs>
+    <rect width="640" height="420" fill="url(#${sky})"/>
+    <circle cx="512" cy="118" r="78" fill="url(#${glow})"/><circle cx="512" cy="118" r="34" fill="var(--accent)"/>
+    <ellipse cx="150" cy="372" rx="240" ry="60" fill="var(--surface-3)" opacity="0.8"/>
+    <ellipse cx="520" cy="386" rx="260" ry="56" fill="var(--surface-3)" opacity="0.6"/>
+    <rect x="78" y="346" width="484" height="14" fill="var(--surface-2)" stroke="var(--border-strong)" stroke-width="1.5"/>
+    <rect x="64" y="360" width="512" height="16" fill="var(--surface)" stroke="var(--border-strong)" stroke-width="1.5"/>
+    <rect x="48" y="376" width="544" height="18" fill="var(--surface-2)" stroke="var(--border-strong)" stroke-width="1.5"/>
+    ${cols.map((x) => column(x, 150, 346, 40)).join("")}
+    <rect x="92" y="126" width="456" height="18" fill="var(--surface)" stroke="var(--border-strong)" stroke-width="1.5"/>
+    ${cols.map((x) => `<rect x="${x - 3}" y="130" width="6" height="10" fill="var(--border-strong)"/>`).join("")}
+    <path d="M 86 126 L 320 58 L 554 126 Z" fill="var(--surface)" stroke="var(--border-strong)" stroke-width="1.5" stroke-linejoin="round"/>
+    <circle cx="320" cy="104" r="9" fill="var(--accent)"/></svg>`;
+}
+function merchant(cx, robe, label, banner, ink) {
+  return `<g>
+    <rect x="${cx - 47}" y="30" width="94" height="23" rx="3" fill="${banner}" stroke="var(--border-strong)" stroke-width="1.5"/>
+    <path d="M ${cx - 47} 53 L ${cx - 40} 60 L ${cx - 33} 53 Z" fill="${banner}"/>
+    <path d="M ${cx + 33} 53 L ${cx + 40} 60 L ${cx + 47} 53 Z" fill="${banner}"/>
+    <text x="${cx}" y="46" text-anchor="middle" font-family="var(--font-body)" font-weight="700" font-size="12.5" fill="${ink}">${esc(label)}</text>
+    <circle cx="${cx}" cy="98" r="13" fill="var(--surface-2)" stroke="var(--border-strong)" stroke-width="1.5"/>
+    <rect x="${cx - 12}" y="90" width="24" height="4" rx="2" fill="var(--accent)"/>
+    <path d="M ${cx - 21} 118 L ${cx - 32} 192 L ${cx + 32} 192 L ${cx + 21} 118 C ${cx + 12} 112 ${cx - 12} 112 ${cx - 21} 118 Z" fill="${robe}" stroke="var(--border-strong)" stroke-width="1.5" stroke-linejoin="round"/>
+    <path d="M ${cx - 7} 116 L ${cx} 126 L ${cx + 7} 116" fill="none" stroke="var(--border-strong)" stroke-width="1.5"/>
+    ${[-13, 0, 13].map((dx) => `<line x1="${cx + dx}" y1="130" x2="${cx + dx * 1.25}" y2="188" stroke="var(--border)" stroke-width="1.3"/>`).join("")}
+  </g>`;
+}
+function agoraStill() {
+  const sky = gid();
+  const merchants = [
+    { label: "ETF", robe: "var(--accent)", banner: "var(--accent)", ink: "var(--accent-ink)" },
+    { label: "机构", robe: "var(--surface)", banner: "var(--surface-2)", ink: "var(--text)" },
+    { label: "持有者", robe: "var(--accent)", banner: "var(--accent)", ink: "var(--accent-ink)" },
+    { label: "矿工", robe: "var(--surface)", banner: "var(--surface-2)", ink: "var(--text)" },
+    { label: "衍生品", robe: "var(--surface)", banner: "var(--surface-2)", ink: "var(--text)" },
+  ];
+  const xs = [80, 200, 320, 440, 560];
+  return `<svg viewBox="0 0 640 260" preserveAspectRatio="xMidYMid slice" style="display:block;width:100%;height:100%">
+    <defs><linearGradient id="${sky}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--accent-soft)"/><stop offset="100%" stop-color="var(--surface)"/></linearGradient></defs>
+    <rect width="640" height="260" fill="url(#${sky})"/>
+    ${[40, 600].map((x) => `<rect x="${x - 7}" y="70" width="14" height="120" fill="var(--surface-2)" stroke="var(--border)" stroke-width="1.2"/>`).join("")}
+    ${merchants.map((m, i) => merchant(xs[i], m.robe, m.label, m.banner, m.ink)).join("")}
+    ${xs.map((x) => [0, 1, 2].map((j) => `<circle cx="${x - 16 + j * 16}" cy="186" r="5" fill="var(--accent)" opacity="0.8"/>`).join("")).join("")}
+    <rect x="20" y="192" width="600" height="14" fill="var(--surface-2)" stroke="var(--border-strong)" stroke-width="1.5"/>
+    <rect x="32" y="206" width="576" height="46" fill="var(--surface)" stroke="var(--border-strong)" stroke-width="1.5"/></svg>`;
+}
+function laurelAvatar() {
+  return `<svg viewBox="0 0 100 100" style="display:block;width:100%;height:100%">
+    <circle cx="50" cy="50" r="48" fill="var(--accent)"/>
+    <circle cx="50" cy="50" r="40" fill="none" stroke="var(--accent-ink)" stroke-width="1.5" opacity="0.35"/>
+    <path d="M 30 74 Q 16 50 30 26" fill="none" stroke="var(--accent-ink)" stroke-width="2.5" opacity="0.6"/>
+    <path d="M 70 74 Q 84 50 70 26" fill="none" stroke="var(--accent-ink)" stroke-width="2.5" opacity="0.6"/>
+    <text x="50" y="60" text-anchor="middle" font-family="var(--font-display)" font-weight="700" font-size="34" fill="var(--accent-ink)">R</text></svg>`;
+}
+
+// =====================================================
+//  COMPONENT BUILDERS
+// =====================================================
+function delta(v, suffix = "%") {
+  const up = v >= 0;
+  return `<span class="delta ${up ? "up" : "down"}"><span style="font-size:9px">${up ? "▲" : "▼"}</span>${up ? "+" : ""}${v}${suffix}</span>`;
+}
+function panel({ title, sub, right, body, className = "" }) {
+  const head = (title || right) ? `<div class="panel-head">
+    <div><div class="panel-title"><span class="tick"></span>${esc(title || "")}</div>${sub ? `<div class="panel-sub" style="margin-top:4px">${esc(sub)}</div>` : ""}</div>
+    ${right || ""}</div>` : "";
+  return `<div class="panel hoverable ${className}">${head}${body || ""}</div>`;
+}
+function statCard(s, i, spark) {
+  return `<div class="panel stat fade fade-${i + 1}">
+    <div class="stat-label">${esc(s.label)}</div>
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:10px">
+      <div class="stat-value">${esc(s.value)}</div>${spark ? sparkline(spark) : ""}
+    </div>
+    <div class="stat-foot">${s.chg !== undefined ? delta(s.chg) : ""}${s.sub ? `<span>${esc(s.sub)}</span>` : ""}</div></div>`;
+}
+function sectionHeader({ eyebrow, title, sub, live, right }) {
+  return `<div class="section-head">
+    <div style="flex:1">
+      ${eyebrow ? `<div class="section-eyebrow">${esc(eyebrow)}</div>` : ""}
+      <h1 class="section-title">${esc(title)}</h1>
+      ${sub ? `<p class="section-sub">${esc(sub)}</p>` : ""}
+    </div>
+    ${live ? `<span class="live-pill"><span class="pulse"></span>实时 LIVE</span>` : ""}
+    ${right || ""}</div>`;
+}
+const source = (t) => `<div class="source">数据来源：${esc(t)}</div>`;
+const legendKey = (color, label) => `<span class="key"><span class="swatch" style="background:${color}"></span>${esc(label)}</span>`;
+
+// =====================================================
+//  SECTION: ETF 资金流
+// =====================================================
+function renderETF() {
+  const d = DASH.etf;
+  const palette = ["var(--accent)", "color-mix(in oklab,var(--accent) 70%,var(--text-3))",
+    "color-mix(in oklab,var(--accent) 45%,var(--text-3))", "var(--text-3)", "var(--surface-3)"];
+  const donutData = d.funds.filter((f) => f.aum > 0).slice(0, 5).map((f, i) => ({ label: f.name, value: f.aum, color: palette[i] }));
+
+  const cards = d.summary.map((s, i) => statCard(s, i, i < 2 ? d.netFlow.slice(-12) : undefined)).join("");
+
+  const flowPanel = panel({
+    title: "净流入 / 流出", sub: "单位：百万美元 (USD M) · 近 30 日", className: "span-2 fade",
+    right: `<div class="legend">${legendKey("var(--accent)", "净流入")}${legendKey("var(--neg)", "净流出")}</div>`,
+    body: flowBars(d.netFlow, 220) + `<div class="num" style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--text-3)"><span>${d.days[0]}</span><span>${d.days[14]}</span><span>${d.days[29]}</span></div>`,
+  });
+  const donutPanel = panel({
+    title: "持仓份额", sub: "按 AUM · Top 5", className: "fade",
+    body: `<div class="viz-center" style="position:relative">${donut(donutData, 170, 20)}
+      <div style="position:absolute;text-align:center"><div class="num" style="font-size:22px;font-weight:700;letter-spacing:-0.02em">$84.9B</div><div style="font-size:11px;color:var(--text-3)">总 AUM</div></div></div>
+      <div class="legend" style="margin-top:14px;flex-direction:column;gap:7px">${donutData.map((s) => `<span class="key" style="justify-content:space-between;width:100%"><span><span class="swatch" style="background:${s.color}"></span>${esc(s.label)}</span><span class="num" style="color:var(--text-3)">$${(s.value / 1000).toFixed(1)}B</span></span>`).join("")}</div>`,
+  });
+
+  const cumPanel = panel({ title: "累计净流入趋势", sub: "单位：百万美元 · 自基准日累计", className: "fade", body: areaChart(d.cumulative, 200) });
+
+  const fundRows = d.funds.map((f) => `<tr>
+    <td class="name">${esc(f.name)}</td>
+    <td style="color:var(--text-2)">${esc(f.issuer)}</td>
+    <td class="r num ${f.flow >= 0 ? "pos" : "neg"}" style="font-weight:600">${f.flow >= 0 ? "+" : ""}${f.flow}M</td>
+    <td class="r num" style="color:var(--text-2)">$${(f.aum / 1000).toFixed(1)}B</td>
+    <td class="bar-cell"><div style="display:flex;align-items:center;gap:10px"><div class="bar-bg" style="flex:1"><div class="bar-fill" style="width:${f.share}%"></div></div><span class="num" style="font-size:12px;color:var(--text-3);width:40px">${f.share}%</span></div></td>
+    <td class="r"><span class="tag ${f.on ? "on" : "off"}">${f.on ? "净流入" : "净流出"}</span></td></tr>`).join("");
+  const tablePanel = panel({
+    title: "各基金明细", sub: "资金流向 · 日频", className: "fade",
+    body: `<table class="tbl"><thead><tr><th>基金</th><th>发行商</th><th class="r">净流入</th><th class="r">AUM</th><th style="width:26%">份额</th><th class="r">状态</th></tr></thead><tbody>${fundRows}</tbody></table>`,
+  });
+
+  return sectionHeader({
+    eyebrow: "Participant 01 · ETF Flows", title: "ETF 资金流向",
+    sub: "追踪美国现货 BTC ETF 的每日申购赎回、累计净流入与各发行商持仓份额。", live: true,
+    right: segMarkup(["日", "周", "月"], "日"),
+  }) +
+    `<div class="grid cols-4" style="margin-bottom:var(--gap)">${cards}</div>
+     <div class="grid cols-3" style="margin-bottom:var(--gap)">${flowPanel}${donutPanel}</div>
+     ${cumPanel}<div style="height:var(--gap)"></div>${tablePanel}` + source("SoSoValue · Farside Investors");
+}
+
+// =====================================================
+//  SECTION: 机构持仓
+// =====================================================
+function renderInst() {
+  const d = DASH.inst;
+  const cards = d.summary.map((s, i) => statCard(s, i)).join("");
+  const growthPanel = panel({
+    title: "上市公司 BTC 储备总量", sub: "近 30 日 · 单位 BTC", className: "fade",
+    body: areaChart(d.growth, 200) + `<div class="num" style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--text-3)"><span>${d.days[0]}</span><span>${d.days[29]}</span></div>`,
+  });
+  const tot = d.holders.reduce((s, h) => s + h.btc, 0);
+  const rows = d.holders.map((h) => `<tr>
+    <td class="name">${esc(h.name)}</td>
+    <td><span class="tk">${esc(h.ticker)}</span></td>
+    <td class="r num" style="font-weight:600">${h.btc.toLocaleString()}</td>
+    <td class="r num" style="color:var(--text-2)">$${h.cost.toLocaleString()}</td>
+    <td class="bar-cell"><div style="display:flex;align-items:center;gap:10px"><div class="bar-bg" style="flex:1"><div class="bar-fill" style="width:${(h.btc / tot * 100 * 1.6)}%"></div></div><span class="num" style="font-size:12px;color:var(--text-3);width:40px">${(h.btc / tot * 100).toFixed(1)}%</span></div></td>
+    <td class="r num pos" style="font-weight:600">+${h.pnl}%</td></tr>`).join("");
+  const tablePanel = panel({
+    title: "持有量排名", sub: "按 BTC 持仓量 · 含成本与浮盈", className: "fade",
+    body: `<table class="tbl"><thead><tr><th>机构</th><th>代码</th><th class="r">BTC 持仓</th><th class="r">成本均价</th><th style="width:22%">占总储备</th><th class="r">未实现盈亏</th></tr></thead><tbody>${rows}</tbody></table>`,
+  });
+  return sectionHeader({
+    eyebrow: "Participant 02 · Institutional", title: "机构持仓追踪",
+    sub: "上市公司、矿企与基金的 BTC 储备总量、成本基础与未实现盈亏。",
+    right: `<span class="live-pill muted">每日更新</span>`,
+  }) + `<div class="grid cols-4" style="margin-bottom:var(--gap)">${cards}</div>${growthPanel}<div style="height:var(--gap)"></div>${tablePanel}` + source("BitcoinTreasuries · 公开披露文件 (10-Q / 8-K)");
+}
+
+// =====================================================
+//  SECTION: 衍生品市场
+// =====================================================
+function renderDeriv() {
+  const d = DASH.deriv;
+  const cards = d.summary.map((s, i) => statCard(s, i, i === 1 ? d.funding.slice(-12) : i === 0 ? d.oi.slice(-12) : undefined)).join("");
+  const fundingPanel = panel({ title: "资金费率", sub: "8h · OI 加权 · 近 30 日 (%)", className: "fade", body: lineChart(d.funding, null, 190) });
+  const oiPanel = panel({ title: "未平仓合约 OI", sub: "单位：十亿美元 · 近 30 日", className: "fade", body: areaChart(d.oi, 190) });
+  const liqPanel = panel({
+    title: "24h 爆仓分布", sub: "按交易所 · 多 / 空", className: "span-2 fade",
+    right: `<div class="legend">${legendKey("var(--neg)", "多头爆仓")}${legendKey("var(--pos)", "空头爆仓")}</div>`,
+    body: stackedRows(d.liq),
+  });
+  const gaugePanel = panel({
+    title: "多空持仓比", sub: "全网 · Top Trader", className: "fade",
+    body: `<div class="viz-center" style="padding-top:8px">${gauge(d.longShort, 0.5, 2, 200, d.longShort.toFixed(2), "LONG / SHORT")}</div>
+      <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:12.5px"><span style="color:var(--text-2)">隐含波动率 IV</span><span class="num" style="font-weight:600">${d.iv}%</span></div>`,
+  });
+  return sectionHeader({ eyebrow: "Participant 03 · Derivatives", title: "衍生品市场", sub: "永续合约资金费率、未平仓合约、爆仓分布与期权偏斜度。", live: true }) +
+    `<div class="grid cols-4" style="margin-bottom:var(--gap)">${cards}</div>
+     <div class="grid cols-2" style="margin-bottom:var(--gap)">${fundingPanel}${oiPanel}</div>
+     <div class="grid cols-3">${liqPanel}${gaugePanel}</div>` + source("CoinGlass · Hyperliquid · Velo · Deribit");
+}
+
+// =====================================================
+//  SECTION: 矿工
+// =====================================================
+function renderMiner() {
+  const d = DASH.miner, sd = d.shutdown;
+  const pricePct = ((sd.price - sd.low) / (sd.high - sd.low)) * 100;
+  const cards = d.summary.map((s, i) => statCard(s, i, i === 3 ? d.hashrate.slice(-12) : i === 2 ? d.hashprice.slice(-12) : undefined)).join("");
+  const hashratePanel = panel({ title: "全网算力", sub: "EH/s · 7日均 · 近 30 日", className: "fade", body: areaChart(d.hashrate, 190) });
+  const hashpricePanel = panel({ title: "哈希价格", sub: "USD / PH/s · 矿工盈利能力", className: "fade", body: lineChart(d.hashprice, null, 190, "var(--neg)") });
+  const rigRows = d.rigs.map((r) => `<tr>
+    <td class="name">${esc(r.model)}</td>
+    <td class="r num" style="color:var(--text-2)">${r.eff}</td>
+    <td class="r"><span class="tag ${r.status === "盈利" ? "on" : r.status === "亏损" ? "off" : "mid"}">${esc(r.status)}</span></td>
+    <td class="bar-cell"><div style="display:flex;align-items:center;gap:10px"><div class="bar-bg" style="flex:1"><div class="bar-fill" style="width:${Math.abs(r.margin)}%;background:${r.margin >= 0 ? "var(--pos)" : "var(--neg)"}"></div></div><span class="num ${r.margin >= 0 ? "pos" : "neg"}" style="font-size:12px;width:40px">${r.margin > 0 ? "+" : ""}${r.margin}%</span></div></td></tr>`).join("");
+  const rigsPanel = panel({
+    title: "主流矿机盈利状态", sub: "按能效 (J/TH) · 当前电价假设 $0.06/kWh", className: "span-2 fade",
+    body: `<table class="tbl"><thead><tr><th>机型</th><th class="r">能效 J/TH</th><th class="r">状态</th><th style="width:30%">利润率</th></tr></thead><tbody>${rigRows}</tbody></table>`,
+  });
+  const shutdownPanel = panel({
+    title: "关机价区间", sub: "主流矿机停机阈值", className: "fade",
+    body: `<div class="kpi-inline" style="margin-bottom:18px"><span class="big">$${sd.price.toLocaleString()}</span><span style="font-size:12px;color:var(--pos)">当前价</span></div>
+      <div style="position:relative;height:10px;border-radius:5px;background:linear-gradient(90deg,var(--neg-soft),var(--surface-3) 55%,var(--pos-soft));margin-bottom:8px">
+        <div style="position:absolute;left:calc(${pricePct}% - 7px);top:-4px;width:14px;height:18px;border-radius:4px;background:var(--accent);border:2px solid var(--surface)"></div></div>
+      <div class="num" style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-3)"><span>$${sd.low.toLocaleString()}</span><span>$${sd.high.toLocaleString()}</span></div>
+      <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-size:12.5px"><span style="color:var(--text-2)">下次难度调整</span><span class="num pos" style="font-weight:600">+${d.difficulty}%</span></div>`,
+  });
+  return sectionHeader({ eyebrow: "Participant 04 · Miners", title: "矿工数据", sub: "矿工储备与净转出、哈希价格、全网算力及关机价区间。", live: true }) +
+    `<div class="grid cols-4" style="margin-bottom:var(--gap)">${cards}</div>
+     <div class="grid cols-2" style="margin-bottom:var(--gap)">${hashratePanel}${hashpricePanel}</div>
+     <div class="grid cols-3">${rigsPanel}${shutdownPanel}</div>` + source("Glassnode · Hashrate Index · Luxor");
+}
+
+// =====================================================
+//  SECTION: 链上指标
+// =====================================================
+function renderOnchain() {
+  const d = DASH.onchain;
+  const cards = d.summary.map((s, i) => statCard(s, i, i === 0 ? d.mvrv.slice(-12) : i === 1 ? d.sopr.slice(-12) : undefined)).join("");
+  const lastMvrv = d.mvrv[d.mvrv.length - 1];
+  const mvrvPanel = panel({
+    title: "MVRV-Z Score", sub: "估值带 · >7 过热 / <0 低估", className: "fade",
+    body: `<div class="viz-center" style="padding-top:8px">${gauge(lastMvrv, -1, 8, 200, lastMvrv.toFixed(2), "中性偏热区间")}</div>`,
+  });
+  const soprPanel = panel({ title: "SOPR · 花费产出利润率", sub: ">1 整体盈利了结 · 近 30 日", className: "span-2 fade", body: lineChart(d.sopr, null, 190) });
+  const cohortBody = d.cohorts.map((c) => `<div style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:7px"><span style="font-weight:600">${esc(c.label)}</span><span class="num" style="color:var(--text-2)">${c.supply}% · 盈利占比 ${(c.pnl * 100).toFixed(0)}%</span></div>
+      <div class="bar-bg" style="height:10px"><div class="bar-fill" style="width:${c.supply}%;height:10px;background:${c.label.includes("长期") ? "var(--accent)" : "var(--text-3)"}"></div></div></div>`).join("");
+  const cohortPanel = panel({ title: "持有者结构", sub: "LTH vs STH · 占流通供应", className: "fade", body: cohortBody + `<div style="margin-top:6px;font-size:12px;color:var(--text-3)">长期持有者持续吸筹，供应趋于成熟。</div>` });
+  const netflowPanel = panel({ title: "交易所净流量", sub: "负值 = 净流出 (看涨) · 千 BTC", className: "fade", body: flowBars(d.netflow, 180, "var(--neg)", "var(--pos)") });
+  return sectionHeader({ eyebrow: "Participant 05 · On-chain", title: "链上指标", sub: "估值带、盈利状态、持有者结构与交易所资金流向。", live: true }) +
+    `<div class="grid cols-4" style="margin-bottom:var(--gap)">${cards}</div>
+     <div class="grid cols-3" style="margin-bottom:var(--gap)">${mvrvPanel}${soprPanel}</div>
+     <div class="grid cols-2">${cohortPanel}${netflowPanel}</div>` + source("Glassnode · CheckOnChain");
+}
+
+// =====================================================
+//  SECTION: 今日报告  (wired to data/posts.json)
+// =====================================================
+const VERDICT = {
+  "极度看多": { tone: "up", delta: 2.0 }, "偏多": { tone: "up", delta: 1.0 },
+  "中性": { tone: "neutral", delta: 0.2 },
+  "偏空": { tone: "down", delta: -1.0 }, "极度看空": { tone: "down", delta: -2.0 },
+};
+function verdictMeta(v) { return VERDICT[v] || VERDICT["中性"]; }
+function weekdayCN(iso) {
+  const wd = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+  const d = new Date(iso + "T00:00:00"); return isNaN(d) ? "" : wd[d.getDay()];
+}
+function tagForBullet(text) {
+  if (/ETF|净流入|净流出|IBIT|SoSoValue/i.test(text)) return "ETF";
+  if (/STRC|MSTR|Strategy|Saylor|机构|增持|储备/i.test(text)) return "机构";
+  if (/资金费率|未平仓|爆仓|合约|衍生品|多头|空头|OI/i.test(text)) return "衍生品";
+  if (/矿工|算力|哈希|难度|关机/i.test(text)) return "矿工";
+  if (/链上|MVRV|SOPR|持有者|LTH|交易所|余额|RHODL/i.test(text)) return "链上";
+  return "市场";
+}
+
+async function renderReport() {
+  // shell with skeletons; fill async
+  document.getElementById("view").innerHTML =
+    sectionHeader({
+      eyebrow: "The Agora · 今日报告", title: "市场集市日报",
+      sub: "每日追踪五类 BTC 市场参与者的行为与仓位——像走过一座露天集市，逐个摊位读懂供需。",
+      right: `<span class="live-pill" id="report-pill"><span class="pulse"></span>加载中…</span>`,
+    }) + `<div id="report-body"><div class="skeleton" style="height:330px"></div></div>`;
+
+  let posts = [];
+  let brief = null;
   try {
-    const [mRes, hRes] = await Promise.all([
-      fetch("/api/etf-metrics"),
-      fetch("/api/etf-history")
+    const [pRes, bRes] = await Promise.all([
+      fetch("data/posts.json?v=" + Date.now()),
+      fetch("data/market_brief.json?v=" + Date.now()).catch(() => null),
     ]);
-    if (!mRes.ok || !hRes.ok) throw new Error("api");
-    const metrics = await mRes.json();
-    const history = await hRes.json();
-
-    const m = metrics.data || metrics;
-    const h = history.data || history;
-
-    renderETFCards(m);
-    renderETFFundTable(m);
-    renderETFRankChart(m);
-    await buildETFInflowChart(h);
-    wireETFToggles();
+    if (!pRes.ok) throw new Error("posts " + pRes.status);
+    posts = await pRes.json();
+    if (bRes && bRes.ok) brief = await bRes.json();
   } catch (err) {
-    console.error("ETF page load failed:", err);
-    _etfLoaded = false; // allow retry on next tab open
-    const cards = document.getElementById("etf-cards");
-    if (cards) cards.innerHTML =
-      `<div class="etf-error">数据加载失败，请刷新重试</div>`;
-    const tbl = document.getElementById("etf-fund-table");
-    if (tbl) tbl.innerHTML = `<div class="etf-error">数据加载失败，请刷新重试</div>`;
+    document.getElementById("report-body").innerHTML =
+      `<div class="empty-note"><strong>数据加载失败</strong><br/><span style="font-size:12px">请检查 data/posts.json 是否存在且为有效 JSON</span></div>`;
+    return;
   }
-}
+  if (!posts.length) {
+    document.getElementById("report-body").innerHTML = `<div class="empty-note">暂无日报，请通过管理页面添加</div>`;
+    return;
+  }
 
-// ── Section A — 4 metric header cards ─────────────────
-function renderETFCards(m) {
-  const el = document.getElementById("etf-cards");
-  if (!el) return;
+  posts.sort((a, b) => b.date.localeCompare(a.date));
+  const L = posts[0];
+  const rest = posts.slice(1);
+  const issueNo = posts.length + 99; // synthetic running issue number
+  const bullets = L.bullets || [];
+  const totalChars = bullets.join("").length;
+  const readMins = Math.max(2, Math.ceil(totalChars / 380));
+  const standfirst = (brief && brief.brief) ? brief.brief : (bullets[0] || "");
 
-  const card = (label, valueHtml, sub, colorClass) => `
-    <div class="etf-card">
-      <div class="etf-card-label">${label}</div>
-      <div class="etf-card-value ${colorClass || ""}">${valueHtml}</div>
-      <div class="etf-card-sub">${sub || ""}</div>
-    </div>`;
+  document.getElementById("footer-updated").textContent = L.date;
+  const pill = document.getElementById("report-pill");
+  if (pill) pill.innerHTML = `<span class="pulse"></span>No. ${issueNo} · ${L.date}`;
 
-  const daily = m.dailyNetInflow      || {};
-  const cum   = m.cumNetInflow        || {};
-  const trade = m.dailyTotalValueTraded || {};
-  const asset = m.totalNetAssets      || {};
-  const pct   = m.totalNetAssetsPercentage || {};
+  // HERO
+  const hero = `<div class="report-hero panel fade">
+    <div class="hero-art">${classicalScene()}</div>
+    <div class="hero-body">
+      <div class="hero-meta">
+        <span class="kicker">每日研究 · DAILY BRIEF</span>
+        <span class="dotsep">·</span><span>${weekdayCN(L.date)}</span>
+        <span class="dotsep">·</span><span>${readMins} 分钟阅读</span>
+      </div>
+      <h2 class="hero-title">${esc(L.title || "BTC 市场参与者日报")}</h2>
+      <p class="hero-stand">${esc(standfirst)}</p>
+      <div class="byline">
+        <div class="avatar">${laurelAvatar()}</div>
+        <div><div class="by-name">Rising Capital</div><div class="by-handle mono">${esc(DASH.meta.handle)}</div></div>
+        <div class="spacer"></div>
+        <button class="read-btn" onclick="document.getElementById('market-summary').scrollIntoView({behavior:'smooth'})">阅读全文 →</button>
+      </div>
+    </div></div>`;
 
-  const dVal = numOr(daily.value);
-  const cVal = numOr(cum.value);
-
-  el.innerHTML =
-    card("日净流入", fmtUsdSigned(dVal), "截至 " + (daily.lastUpdateDate || "").slice(0,10),
-         dVal >= 0 ? "etf-pos" : "etf-neg") +
-    card("累计总净流入", fmtUsdSigned(cVal), "截至 " + (cum.lastUpdateDate || "").slice(0,10),
-         cVal >= 0 ? "etf-pos" : "etf-neg") +
-    card("日交易额", "$" + fmtUsdShort(numOr(trade.value)),
-         "截至 " + (trade.lastUpdateDate || "").slice(0,10), "") +
-    card("总净资产", "$" + fmtUsdShort(numOr(asset.value)),
-         "占BTC市值 " + (pct.value != null ? (numOr(pct.value) * (numOr(pct.value) < 1 ? 100 : 1)).toFixed(2) : "--") + "%", "");
-}
-
-// ── Section C — per-fund table ────────────────────────
-function fundList(m) {
-  return (m.list || m.funds || []).slice();
-}
-function fundCell(usd) {
-  const n = numOr(usd, NaN);
-  if (isNaN(n)) return `<td class="etf-grey">--</td>`;
-  const cls = n > 0 ? "etf-pos" : n < 0 ? "etf-neg" : "etf-grey";
-  return `<td class="${cls}">${fmtUsdSigned(n)}</td>`;
-}
-function pickVal(obj) { return obj && obj.value != null ? obj.value : obj; }
-
-function renderETFFundTable(m) {
-  const el = document.getElementById("etf-fund-table");
-  if (!el) return;
-  const funds = fundList(m);
-  if (!funds.length) { el.innerHTML = `<div class="etf-error">暂无基金数据</div>`; return; }
-
-  // Sort by total net assets descending
-  funds.sort((a, b) => numOr(pickVal(b.netAssets)) - numOr(pickVal(a.netAssets)));
-
-  const rows = funds.map(f => {
-    const ticker    = f.ticker || f.symbol || f.name || "--";
-    const institute = f.institute || f.issuer || "";
-    const fee       = f.fee != null ? f.fee : (f.feeRate != null ? f.feeRate : null);
-    const feeStr    = fee != null ? (numOr(fee) < 1 ? (numOr(fee)*100).toFixed(2) : numOr(fee).toFixed(2)) + "%" : "--";
-    return `
-      <tr>
-        <td class="etf-fund-name"><strong>${ticker}</strong><span>${institute}</span></td>
-        ${fundCell(pickVal(f.dailyNetInflow))}
-        ${fundCell(pickVal(f.cumNetInflow))}
-        <td>${f.dailyValueTraded != null || (f.dailyTotalValueTraded!=null) ? "$" + fmtUsdShort(numOr(pickVal(f.dailyValueTraded ?? f.dailyTotalValueTraded))) : "--"}</td>
-        <td>${"$" + fmtUsdShort(numOr(pickVal(f.netAssets)))}</td>
-        <td class="etf-grey">${feeStr}</td>
-      </tr>`;
+  // TAKEAWAYS — first 4 bullets
+  const takeaways = bullets.slice(0, 4).map((b, i) => {
+    const tone = verdictMeta(L.verdict).tone;
+    return `<div class="panel takeaway fade fade-${i + 1}">
+      <div class="tk-top"><span class="t-tag">${esc(tagForBullet(b))}</span><span class="tk-dot" style="background:${TONE[tone]}"></span></div>
+      <p class="tk-text">${esc(b.length > 90 ? b.slice(0, 88) + "…" : b)}</p></div>`;
   }).join("");
+  const takeawaysBlock = `<div class="section-eyebrow" style="margin:26px 0 14px">今日要点 · KEY TAKEAWAYS</div>
+    <div class="grid cols-4">${takeaways}</div>`;
 
-  el.innerHTML = `
-    <table class="etf-table">
-      <thead>
-        <tr><th>基金</th><th>日净流入</th><th>累计净流入</th><th>日交易额</th><th>总净资产</th><th>费率</th></tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>`;
-}
+  // ARTICLE — lead + agora figure + remaining bullets + the post's real charts
+  const restBullets = bullets.slice(1).map((b) => `<p>${esc(b)}</p>`).join("");
+  const charts = (L.charts || []).filter((c) => c.filename);
+  const chartFigs = charts.length ? `<div class="article-charts">${charts.map((c) => {
+    const src = CHARTS_BASE + c.filename;
+    return `<figure style="margin:0"><img src="${esc(src)}" alt="${esc(c.caption || "")}" loading="lazy" onclick="openLightbox('${esc(src)}')" onerror="this.style.display='none'"/>${c.caption || c.source ? `<div class="cap">${esc([c.caption, c.source].filter(Boolean).join(" · "))}</div>` : ""}</figure>`;
+  }).join("")}</div>` : "";
 
-// ── Section D — institution holdings ranking bar ──────
-function renderETFRankChart(m) {
-  const canvas = document.getElementById("etf-rank-chart");
-  if (!canvas || !window.Chart) return;
-  const funds = fundList(m)
-    .map(f => ({
-      ticker: f.ticker || f.symbol || f.name || "--",
-      assets: numOr(pickVal(f.netAssets))
-    }))
-    .filter(f => f.assets > 0)
-    .sort((a, b) => b.assets - a.assets);
+  const articleBody = `<article class="article">
+    <p class="lead">${esc(bullets[0] || "")}</p>
+    <div class="article-figure"><div class="fig-art">${agoraStill()}</div>
+      <span class="fig-cap">图 · 五类市场参与者如集市中的摊主——ETF、机构、长期持有者、矿工与衍生品交易者各自定价、彼此博弈</span></div>
+    ${restBullets}
+    ${chartFigs}
+  </article>`;
+  const articlePanel = `<div id="market-summary">` + panel({ title: "市场综述", sub: `${L.date} · No. ${issueNo}`, className: "span-2 fade", body: articleBody }) + `</div>`;
 
-  if (!funds.length) return;
-
-  canvas.parentElement.style.height = Math.max(160, funds.length * 40) + "px";
-  const colors = funds.map((_, i) => i === 0 ? "#F0A12C" : "#6B7280");
-
-  const sub = document.getElementById("etf-rank-sub");
-  const upd = (m.totalNetAssets && m.totalNetAssets.lastUpdateDate) || "";
-  if (sub) sub.textContent = "数据来源：SoSoValue · 更新于 " + upd.slice(0,10);
-
-  if (_etfRankChart) _etfRankChart.destroy();
-  _etfRankChart = new Chart(canvas, {
-    type: "bar",
-    data: {
-      labels: funds.map(f => f.ticker),
-      datasets: [{ data: funds.map(f => f.assets), backgroundColor: colors, borderRadius: 4 }]
-    },
-    options: {
-      indexAxis: "y",
-      responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: { callbacks: { label: c => "$" + fmtUsdShort(c.parsed.x) } }
-      },
-      scales: {
-        x: { ticks: { color: "#9aa3b2", callback: v => "$" + fmtUsdShort(v) },
-             grid: { color: "rgba(255,255,255,0.06)" } },
-        y: { ticks: { color: "#cbd2de", font: { weight: "600" } }, grid: { display: false } }
-      }
-    }
+  // HISTORY
+  const histItems = rest.map((h, i) => {
+    const m = verdictMeta(h.verdict);
+    const title = h.title && h.title !== "BTC市场参与者日报" ? h.title : (h.bullets && h.bullets[0] ? h.bullets[0].slice(0, 40) : "BTC 市场参与者日报");
+    const tags = [tagForBullet((h.bullets && h.bullets[0]) || ""), h.verdict].filter(Boolean);
+    return `<a class="hist-item" onclick="return false">
+      <div class="hist-date num">${esc(h.date.slice(5))}</div>
+      <div class="hist-main"><div class="hist-title">${esc(title)}</div>
+        <div class="hist-tags">${tags.map((t) => `<span class="t-tag">${esc(t)}</span>`).join("")}<span class="hist-issue mono">No.${issueNo - 1 - i}</span></div></div>
+      ${delta(m.delta)}</a>`;
+  }).join("");
+  const historyPanel = panel({
+    title: "历史记录", sub: "过往日报", className: "fade",
+    right: `<span class="seg"><button data-on="true">全部</button></span>`,
+    body: `<div class="history">${histItems || `<div class="empty-note" style="padding:20px 0">暂无历史记录</div>`}</div>`,
   });
+
+  document.getElementById("report-body").innerHTML =
+    hero + takeawaysBlock +
+    `<div class="grid cols-3" style="margin-top:var(--gap)">${articlePanel}${historyPanel}</div>` +
+    source("编辑部综合 · SoSoValue / CoinGlass / Glassnode");
 }
 
-// ── Section B — daily net inflow combo chart ──────────
-async function buildETFInflowChart(h) {
-  // Normalise history rows → [{date, inflow(USD), assets(USD)}]
-  const rows = (Array.isArray(h) ? h : (h.list || h.data || [])).map(r => ({
-    date:   (r.date || r.lastUpdateDate || r.day || "").slice(0,10),
-    inflow: numOr(r.totalNetInflow ?? r.netInflow ?? r.value ?? r.dailyNetInflow),
-    assets: numOr(r.totalNetAssets ?? r.netAssets ?? r.totalNetAsset)
-  })).filter(r => r.date);
+// =====================================================
+//  SHELL: nav, ticker, theme, routing
+// =====================================================
+const SECTIONS = [
+  { id: "report", label: "今日报告", render: renderReport, async: true },
+  { id: "etf", label: "ETF 资金流", render: renderETF },
+  { id: "inst", label: "机构持仓", render: renderInst },
+  { id: "deriv", label: "衍生品市场", render: renderDeriv },
+  { id: "miner", label: "矿工", render: renderMiner },
+  { id: "onchain", label: "链上指标", render: renderOnchain },
+];
 
-  rows.sort((a, b) => a.date.localeCompare(b.date));
-  const last90 = rows.slice(-90);
+function segMarkup(options, active) {
+  return `<span class="seg">${options.map((o) => `<button data-on="${o === active}">${esc(o)}</button>`).join("")}</span>`;
+}
 
-  // BTC price history from Binance (public, no proxy)
-  let btcByDate = {};
+function buildNav() {
+  document.getElementById("nav").innerHTML = SECTIONS.map((s) =>
+    `<button class="nav-tab" data-id="${s.id}" data-active="false"><span class="nav-dot"></span>${esc(s.label)}</button>`).join("");
+  document.querySelectorAll(".nav-tab").forEach((btn) =>
+    btn.addEventListener("click", () => setActive(btn.dataset.id)));
+}
+
+function buildTicker() {
+  const dotFor = (tone) => TONE[tone] || TONE.neutral;
+  const row = (k) => DASH.news.map((n, i) =>
+    `<div class="ticker-item" key="${k}${i}"><span class="t-dot" style="background:${dotFor(n.tone)}"></span><span class="t-tag">${esc(n.tag)}</span><span class="t-text">${esc(n.text)}</span><span class="t-time">${esc(n.time)}</span></div>`).join("");
+  document.getElementById("ticker").innerHTML = row("a") + row("b");
+}
+
+let _current = null;
+function setActive(id) {
+  if (_current === id) return;
+  _current = id;
+  document.querySelectorAll(".nav-tab").forEach((b) => b.setAttribute("data-active", String(b.dataset.id === id)));
+  const view = document.getElementById("view");
+  const sec = SECTIONS.find((s) => s.id === id) || SECTIONS[0];
+  // re-trigger fade animation
+  view.classList.remove("fade"); void view.offsetWidth; view.classList.add("fade");
+  if (sec.async) { sec.render(); }
+  else { view.innerHTML = sec.render(); }
+}
+
+// ── live BTC chip ─────────────────────────────────────
+async function fetchBTCPrice() {
   try {
-    const res = await fetch("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=90");
-    if (res.ok) {
-      const kl = await res.json();
-      kl.forEach(k => {
-        const date = new Date(k[0]).toISOString().slice(0,10);
-        btcByDate[date] = parseFloat(k[4]); // close
-      });
-    }
+    const res = await fetch("https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT");
+    if (!res.ok) throw 0;
+    const d = await res.json();
+    return { price: parseFloat(d.lastPrice), change_pct: parseFloat(d.priceChangePercent) };
   } catch (_) {}
-
-  _etfHistoryRaw = last90.map(r => ({ ...r, btc: btcByDate[r.date] ?? null }));
-  drawETFInflowChart("d");
+  try {
+    const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true");
+    if (!res.ok) throw 0;
+    const d = await res.json();
+    return { price: d.bitcoin.usd, change_pct: d.bitcoin.usd_24h_change };
+  } catch (_) {}
+  return null;
+}
+function renderBTCChip(data) {
+  const el = document.getElementById("btc-chip");
+  if (!el) return;
+  if (!data) { el.innerHTML = `<span class="dot"></span><span class="num" style="font-weight:600">BTC --</span>`; return; }
+  DASH.meta.btcPrice = data.price; DASH.meta.btcChange = +data.change_pct.toFixed(2);
+  const price = "$" + Math.round(data.price).toLocaleString("en-US");
+  const chg = data.change_pct;
+  el.innerHTML = `<span class="dot"></span><span class="num" style="font-weight:600">BTC ${price}</span>
+    <span class="num ${chg >= 0 ? "pos" : "neg"}" style="font-size:12px">${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%</span>`;
+}
+async function initBTCChip() {
+  renderBTCChip(await fetchBTCPrice());
+  setInterval(async () => renderBTCChip(await fetchBTCPrice()), 30_000);
 }
 
-// Aggregate daily rows into weekly / monthly buckets
-function aggregateETF(rows, range) {
-  if (range === "d") return rows;
-  const buckets = {};
-  rows.forEach(r => {
-    let key;
-    if (range === "m") key = r.date.slice(0, 7);            // YYYY-MM
-    else { // weekly: ISO-ish week key by year + week number
-      const d = new Date(r.date + "T00:00:00");
-      const onejan = new Date(d.getFullYear(), 0, 1);
-      const week = Math.ceil((((d - onejan) / 86400000) + onejan.getDay() + 1) / 7);
-      key = d.getFullYear() + "-W" + String(week).padStart(2, "0");
-    }
-    if (!buckets[key]) buckets[key] = { date: r.date, inflow: 0, assets: r.assets, btc: r.btc };
-    buckets[key].inflow += r.inflow;       // sum flows
-    buckets[key].assets  = r.assets;       // last asset value in bucket
-    buckets[key].btc     = r.btc;          // last btc in bucket
-    buckets[key].date    = r.date;         // last date label
-  });
-  return Object.values(buckets);
-}
-
-function drawETFInflowChart(range) {
-  const canvas = document.getElementById("etf-inflow-chart");
-  if (!canvas || !window.Chart) return;
-  const rows = aggregateETF(_etfHistoryRaw, range);
-
-  const labels  = rows.map(r => r.date);
-  const inflowM = rows.map(r => r.inflow / 1e6);  // millions
-  const assetsB = rows.map(r => r.assets / 1e9);  // billions
-  const btc     = rows.map(r => r.btc);
-  const barColors = inflowM.map(v => v >= 0 ? "rgba(22,163,74,0.85)" : "rgba(220,38,38,0.85)");
-
-  // Legend (latest values)
-  const last = rows[rows.length - 1] || {};
-  const legend = document.getElementById("etf-chart-legend");
-  if (legend) legend.innerHTML =
-    `<span class="lg lg-bar">■ 日净流入 ${fmtUsdSigned(last.inflow || 0)}</span>` +
-    `<span class="lg lg-asset">— 总净资产 $${fmtUsdShort(last.assets || 0)}</span>` +
-    (last.btc ? `<span class="lg lg-btc">— BTC价格 $${Math.round(last.btc).toLocaleString("en-US")}</span>` : "");
-
-  if (_etfInflowChart) _etfInflowChart.destroy();
-  _etfInflowChart = new Chart(canvas, {
-    data: {
-      labels,
-      datasets: [
-        { type: "bar", label: "日净流入(M)", data: inflowM, yAxisID: "y",
-          backgroundColor: barColors, borderRadius: 2, order: 3 },
-        { type: "line", label: "总净资产(B)", data: assetsB, yAxisID: "y1",
-          borderColor: "#cbd2de", borderWidth: 1.5, pointRadius: 0, tension: 0.25, order: 2 },
-        { type: "line", label: "BTC价格", data: btc, yAxisID: "y2",
-          borderColor: "#F0A12C", borderWidth: 1.5, pointRadius: 0, tension: 0.25, order: 1 }
-      ]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: "index", intersect: false },
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { ticks: { color: "#9aa3b2", maxTicksLimit: 8, autoSkip: true },
-             grid: { display: false } },
-        y:  { position: "left",  ticks: { color: "#9aa3b2", callback: v => v + "M" },
-              grid: { color: "rgba(255,255,255,0.06)" } },
-        y1: { position: "right", ticks: { color: "#cbd2de", callback: v => "$" + v + "B" },
-              grid: { display: false } },
-        y2: { display: false }   // BTC shares the right side visually, hidden ticks
-      }
-    }
+// ── theme toggle ──────────────────────────────────────
+function initTheme() {
+  const root = document.documentElement;
+  const saved = localStorage.getItem("htx-theme");
+  if (saved) root.setAttribute("data-theme", saved);
+  const btn = document.getElementById("theme-toggle");
+  const sync = () => { btn.textContent = root.getAttribute("data-theme") === "dark" ? "☾" : "☀"; };
+  sync();
+  btn.addEventListener("click", () => {
+    const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    localStorage.setItem("htx-theme", next);
+    sync();
   });
 }
 
-function wireETFToggles() {
-  const rangeToggle = document.getElementById("etf-range-toggle");
-  if (rangeToggle) {
-    rangeToggle.querySelectorAll(".etf-range-btn").forEach(btn => {
-      btn.addEventListener("click", () => {
-        rangeToggle.querySelectorAll(".etf-range-btn").forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-        drawETFInflowChart(btn.dataset.range);
-      });
-    });
-  }
+// ── lightbox ──────────────────────────────────────────
+window.openLightbox = function (src) {
+  document.getElementById("lightbox-img").src = src;
+  document.getElementById("lightbox").classList.add("active");
+  document.body.style.overflow = "hidden";
+};
+window.closeLightbox = function () {
+  document.getElementById("lightbox").classList.remove("active");
+  document.getElementById("lightbox-img").src = "";
+  document.body.style.overflow = "";
+};
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") window.closeLightbox(); });
 
-  const periodToggle = document.getElementById("etf-period-toggle");
-  if (periodToggle) {
-    periodToggle.querySelectorAll(".etf-period-btn").forEach(btn => {
-      btn.addEventListener("click", () => {
-        periodToggle.querySelectorAll(".etf-period-btn").forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-        const period = btn.dataset.period;
-        const tbl = document.getElementById("etf-fund-table");
-        if (period === "daily") {
-          // Re-fetch cached metrics by reloading the live snapshot
-          fetch("/api/etf-metrics").then(r => r.json()).then(j => renderETFFundTable(j.data || j))
-            .catch(() => { tbl.innerHTML = `<div class="etf-error">数据加载失败，请刷新重试</div>`; });
-        } else {
-          // TODO: wire weekly/monthly endpoints in future
-          tbl.innerHTML = `<div class="etf-placeholder-note">数据准备中</div>`;
-        }
-      });
-    });
-  }
-}
+// =====================================================
+//  BOOT
+// =====================================================
+document.addEventListener("DOMContentLoaded", () => {
+  initTheme();
+  buildNav();
+  buildTicker();
+  initBTCChip();
+  document.getElementById("brand-home").addEventListener("click", (e) => { e.preventDefault(); setActive("report"); });
+  setActive("report");
+});
