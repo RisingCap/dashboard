@@ -1,0 +1,27 @@
+{
+  "updated": "2026-06-16",
+  "btc": {
+    "holdings": 845256,
+    "cost_basis_avg": 75680
+  },
+  "shares_diluted": 312000000,
+  "btc_yield_ytd_pct": 5.6,
+  "preferreds": [
+    { "ticker": "STRK", "name": "Strike · 8.00% 永续", "shares": 8900000, "coupon": "8.00%", "liq_pref": 100, "annual_div_usd": 71200000 },
+    { "ticker": "STRF", "name": "Strife · 10.00% 永续", "shares": 12200000, "coupon": "10.00%", "liq_pref": 100, "annual_div_usd": 122000000 },
+    { "ticker": "STRD", "name": "Stride · 10.00% 永续", "shares": 11500000, "coupon": "10.00%", "liq_pref": 100, "annual_div_usd": 115000000 },
+    { "ticker": "STRC", "name": "Stretch · 可变利率", "shares": 28500000, "coupon": "可变 ~9.0%", "liq_pref": 100, "annual_div_usd": 256500000 },
+    { "ticker": "STRE", "name": "Stream · 10.00% 永续", "shares": 3500000, "coupon": "10.00%", "liq_pref": 100, "annual_div_usd": 35000000 }
+  ],
+  "reserves": {
+    "usd_reserve_usd": 80000000,
+    "convert_interest_annual_usd": 35000000
+  },
+  "latest_8k": {
+    "date": "2026-06-16",
+    "strc_issued_week_usd": 181000000,
+    "btc_bought_week": 1550,
+    "btc_bought_usd": 101300000,
+    "btc_cumulative": 845256
+  }
+}

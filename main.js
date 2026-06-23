@@ -546,32 +546,196 @@ async function renderETF() {
 }
 
 // =====================================================
-//  SECTION: 机构持仓
+//  SECTION: 机构持仓 — Strategy (MSTR) focused
+//  Live: MSTR + STRC (Twelve Data proxy) · BTC (Binance)
+//  Manual: data/strategy.json (8-K fundamentals)
+//  Computed: mNAV, market value, P&L, dividend runways
 // =====================================================
-function renderInst() {
-  const d = DASH.inst;
-  const cards = d.summary.map((s, i) => statCard(s, i)).join("");
-  const growthPanel = panel({
-    title: "上市公司 BTC 储备总量", sub: "近 30 日 · 单位 BTC", className: "fade",
-    body: areaChart(d.growth, 200, "var(--accent)", { labels: d.days, format: (v) => Math.round(v).toLocaleString() + " BTC" }) + `<div class="num" style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--text-3)"><span>${d.days[0]}</span><span>${d.days[29]}</span></div>`,
+const money2 = (v) => (v < 0 ? "-$" : "$") + Math.abs(v).toFixed(2);
+const intc = (v) => Math.round(v).toLocaleString("en-US");
+function fmtRunway(y) {
+  if (!isFinite(y) || y <= 0) return "—";
+  return y >= 1 ? y.toFixed(2) + " 年" : (y * 12).toFixed(1) + " 个月";
+}
+
+// Twelve Data time_series → [{date, close}] oldest-first
+function tdSeries(history, sym) {
+  const node = history && history[sym];
+  const vals = (node && node.values) || [];
+  return vals.map((v) => ({ date: v.datetime, close: parseFloat(v.close) }))
+    .filter((d) => isFinite(d.close)).reverse();
+}
+
+// Rebased (=100 at start) multi-line comparison chart with combined hover.
+function multiLineChart(series, dates, height = 230) {
+  const w = VB_W, h = height, pad = 14;
+  const rebased = series.map((s) => {
+    const base = s.values.find((v) => v != null) || 1;
+    return { ...s, norm: s.values.map((v) => (v == null ? null : (v / base) * 100)) };
   });
-  const tot = d.holders.reduce((s, h) => s + h.btc, 0);
-  const rows = d.holders.map((h) => `<tr>
-    <td class="name">${esc(h.name)}</td>
-    <td><span class="tk">${esc(h.ticker)}</span></td>
-    <td class="r num" style="font-weight:600">${h.btc.toLocaleString()}</td>
-    <td class="r num" style="color:var(--text-2)">$${h.cost.toLocaleString()}</td>
-    <td class="bar-cell"><div style="display:flex;align-items:center;gap:10px"><div class="bar-bg" style="flex:1"><div class="bar-fill" style="width:${(h.btc / tot * 100 * 1.6)}%"></div></div><span class="num" style="font-size:12px;color:var(--text-3);width:40px">${(h.btc / tot * 100).toFixed(1)}%</span></div></td>
-    <td class="r num pos" style="font-weight:600">+${h.pnl}%</td></tr>`).join("");
-  const tablePanel = panel({
-    title: "持有量排名", sub: "按 BTC 持仓量 · 含成本与浮盈", className: "fade",
-    body: `<table class="tbl"><thead><tr><th>机构</th><th>代码</th><th class="r">BTC 持仓</th><th class="r">成本均价</th><th style="width:22%">占总储备</th><th class="r">未实现盈亏</th></tr></thead><tbody>${rows}</tbody></table>`,
+  const all = [].concat(...rebased.map((s) => s.norm.filter((v) => v != null)));
+  const min = Math.min(...all), max = Math.max(...all), span = (max - min) || 1;
+  const n = dates.length;
+  const xAt = (i) => pad + (i / (n - 1)) * (w - pad * 2);
+  const yAt = (v) => pad + (h - pad * 2) - ((v - min) / span) * (h - pad * 2);
+  let lines = "";
+  for (let i = 0; i < 4; i++) { const y = pad + (i / 3) * (h - pad * 2); lines += `<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="var(--border)" stroke-width="1"/>`; }
+  const paths = rebased.map((s) => {
+    let d = "", started = false;
+    s.norm.forEach((v, i) => { if (v == null) return; const x = xAt(i), y = yAt(v); d += started ? ` L ${x},${y}` : `M ${x},${y}`; started = true; });
+    return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`;
+  }).join("");
+  const svg = `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${height}" preserveAspectRatio="none" style="display:block;overflow:visible">${lines}${paths}</svg>`;
+  const pts = dates.map((dt, i) => ({
+    l: dt.slice(5),
+    v: rebased.map((s) => `${s.name} ${s.values[i] != null ? s.fmt(s.values[i]) : "—"}`).join(" · "),
+  }));
+  const json = JSON.stringify(pts).replace(/'/g, "&#39;");
+  return `<div class="chart-hit" data-points='${json}'>${svg}<div class="hit-line"></div></div>`;
+}
+
+async function loadStrategy() {
+  let fund = null, quote = null, history = null, btc = null, btcKlines = null;
+  try { const r = await fetch("data/strategy.json?v=" + Date.now()); if (r.ok) fund = await r.json(); } catch (_) {}
+  try { const r = await fetch("/api/mstr-quote"); if (r.ok) quote = await r.json(); } catch (_) {}
+  try { const r = await fetch("/api/mstr-history"); if (r.ok) history = await r.json(); } catch (_) {}
+  btc = await fetchBTCPrice();
+  try { const r = await fetch("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=160"); if (r.ok) btcKlines = await r.json(); } catch (_) {}
+  return { fund, quote, history, btc, btcKlines };
+}
+
+async function renderInst() {
+  const head = sectionHeader({
+    eyebrow: "Participant 02 · Strategy (MSTR)", title: "Strategy · MSTR 财库",
+    sub: "聚焦 MicroStrategy/Strategy：BTC 持仓与成本、mNAV、优先股资本结构与股息跑道。", live: true,
   });
-  return sectionHeader({
-    eyebrow: "Participant 02 · Institutional", title: "机构持仓追踪",
-    sub: "上市公司、矿企与基金的 BTC 储备总量、成本基础与未实现盈亏。",
-    right: `<span class="live-pill muted">每日更新</span>`,
-  }) + `<div class="grid cols-4" style="margin-bottom:var(--gap)">${cards}</div>${growthPanel}<div style="height:var(--gap)"></div>${tablePanel}` + source("BitcoinTreasuries · 公开披露文件 (10-Q / 8-K)");
+  document.getElementById("view").innerHTML = head + `<div class="grid cols-4">${[0, 1, 2, 3].map(() => `<div class="skeleton"></div>`).join("")}</div>`;
+
+  const { fund, quote, history, btc, btcKlines } = await loadStrategy();
+  if (!fund) {
+    document.getElementById("view").innerHTML = head + `<div class="empty-note"><strong>数据加载失败</strong><br/><span style="font-size:12px">请检查 data/strategy.json</span></div>`;
+    return;
+  }
+
+  // ---- live prices ----
+  const mq = quote && quote.MSTR && quote.MSTR.close ? quote.MSTR : null;
+  const sq = quote && quote.STRC && quote.STRC.close ? quote.STRC : null;
+  const mstrPrice = mq ? parseFloat(mq.close) : null;
+  const mstrChg = mq ? parseFloat(mq.percent_change) : null;
+  const strcPrice = sq ? parseFloat(sq.close) : null;
+  const strcChg = sq ? parseFloat(sq.percent_change) : null;
+  const btcPrice = btc ? btc.price : null;
+  const priceLive = !!mq;
+
+  // ---- fundamentals + computed ----
+  const holdings = fund.btc.holdings, costAvg = fund.btc.cost_basis_avg, shares = fund.shares_diluted;
+  const btcMV = btcPrice ? holdings * btcPrice : null;
+  const totalCost = holdings * costAvg;
+  const unrealPnl = btcMV != null ? btcMV - totalCost : null;
+  const unrealPct = unrealPnl != null ? (unrealPnl / totalCost) * 100 : null;
+  const mktCap = mstrPrice != null ? mstrPrice * shares : null;
+  const mnav = (mktCap != null && btcMV) ? mktCap / btcMV : null;
+
+  // ---- KPI cards ----
+  const row1 = [
+    { label: "mNAV", value: mnav != null ? mnav.toFixed(2) + "×" : "—", sub: "市值 / BTC 净值" },
+    { label: "BTC Yield · YTD", value: "+" + fund.btc_yield_ytd_pct + "%", sub: "每股 BTC 增长" },
+    { label: "MSTR 价格", value: mstrPrice != null ? money2(mstrPrice) : "—", chg: mstrChg != null ? +mstrChg.toFixed(2) : undefined, sub: "NASDAQ" },
+    { label: "STRC 价格", value: strcPrice != null ? money2(strcPrice) : "—", chg: strcChg != null ? +strcChg.toFixed(2) : undefined, sub: "NASDAQ 优先股" },
+  ].map((s, i) => statCard(s, i)).join("");
+  const row2 = [
+    { label: "BTC 持仓", value: intc(holdings) + " BTC", sub: btcMV != null ? "≈ " + usdAbbr(btcMV) : "成本 $" + intc(costAvg) },
+    { label: "持仓成本均价", value: "$" + intc(costAvg), sub: "总成本 " + usdAbbr(totalCost) },
+    { label: "BTC 市值", value: btcMV != null ? usdAbbr(btcMV) : "—", sub: "现价 " + (btcPrice != null ? "$" + intc(btcPrice) : "—") },
+    { label: "未实现盈亏", value: unrealPnl != null ? (unrealPnl >= 0 ? "+" : "-") + usdAbbr(Math.abs(unrealPnl)) : "—", chg: unrealPct != null ? +unrealPct.toFixed(1) : undefined, sub: "对比持仓成本" },
+  ].map((s, i) => statCard(s, i)).join("");
+
+  // ---- price chart (MSTR / STRC / BTC rebased) ----
+  let chartPanel;
+  const mstrHist = tdSeries(history, "MSTR");
+  if (priceLive && mstrHist.length) {
+    const strcHist = tdSeries(history, "STRC");
+    const strcMap = Object.fromEntries(strcHist.map((d) => [d.date, d.close]));
+    const btcMap = {};
+    (btcKlines || []).forEach((k) => { btcMap[new Date(k[0]).toISOString().slice(0, 10)] = parseFloat(k[4]); });
+    const spine = mstrHist.slice(-120);
+    const dates = spine.map((d) => d.date);
+    const mstrV = spine.map((d) => d.close);
+    const strcV = dates.map((dt) => (strcMap[dt] != null ? strcMap[dt] : null));
+    let lastBtc = null;
+    const btcV = dates.map((dt) => { if (btcMap[dt] != null) lastBtc = btcMap[dt]; return lastBtc; });
+    const chart = multiLineChart([
+      { name: "MSTR", color: "var(--accent)", values: mstrV, fmt: (v) => "$" + v.toFixed(2) },
+      { name: "STRC", color: "#7a5ae0", values: strcV, fmt: (v) => "$" + v.toFixed(2) },
+      { name: "BTC", color: "#F0A12C", values: btcV, fmt: (v) => "$" + intc(v) },
+    ], dates, 230);
+    const legend = `<div class="legend">${legendKey("var(--accent)", "MSTR")}${legendKey("#7a5ae0", "STRC")}${legendKey("#F0A12C", "BTC")}</div>`;
+    chartPanel = panel({ title: "价格走势对比", sub: "再基准化 = 100 · 近 120 交易日", className: "span-all fade", right: legend, body: chart });
+  } else {
+    chartPanel = panel({
+      title: "价格走势对比", sub: "MSTR / STRC / BTC", className: "span-all fade",
+      body: `<div class="empty-note">实时价格图需在 Vercel 配置 <code style="font-family:var(--font-mono)">TWELVEDATA_API_KEY</code><br/><span style="font-size:12px">（用于拉取 MSTR / STRC 实时与历史价格）</span></div>`,
+    });
+  }
+
+  // ---- preferred capital structure ----
+  const prefRows = fund.preferreds.map((p) => `<tr>
+    <td><span class="tk">${esc(p.ticker)}</span></td>
+    <td style="color:var(--text-2)">${esc(p.name)}</td>
+    <td class="r num">${intc(p.shares)}</td>
+    <td class="r num" style="color:var(--text-2)">${esc(p.coupon)}</td>
+    <td class="r num">${usdAbbr(p.annual_div_usd)}</td></tr>`).join("");
+  const prefPanel = panel({
+    title: "优先股资本结构", sub: "STRK · STRF · STRD · STRC · STRE", className: "span-2 fade",
+    body: `<table class="tbl"><thead><tr><th>系列</th><th>名称</th><th class="r">流通股数</th><th class="r">票息</th><th class="r">年度股息</th></tr></thead><tbody>${prefRows}</tbody></table>`,
+  });
+
+  // ---- latest 8-K ----
+  const k = fund.latest_8k;
+  const kRow = (label, val) => `<div style="display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--border);font-size:13px"><span style="color:var(--text-2)">${label}</span><span class="num" style="font-weight:700">${val}</span></div>`;
+  const eightKPanel = panel({
+    title: "最新 8-K 摘要", sub: k.date, className: "fade",
+    body: kRow("STRC 本周增发", usdAbbr(k.strc_issued_week_usd)) +
+      kRow("BTC 本周买入", intc(k.btc_bought_week) + " 枚 · " + usdAbbr(k.btc_bought_usd)) +
+      kRow("BTC 累计持仓", intc(k.btc_cumulative) + " BTC").replace("border-bottom:1px solid var(--border)", "border:none"),
+  });
+
+  // ---- dividend runways ----
+  const reserve = fund.reserves.usd_reserve_usd;
+  const interest = fund.reserves.convert_interest_annual_usd || 0;
+  const strc = fund.preferreds.find((p) => p.ticker === "STRC");
+  const strcAnnual = strc ? strc.annual_div_usd : 0;
+  const divTotal = fund.preferreds.reduce((s, p) => s + (p.annual_div_usd || 0), 0);
+  const globalAnnual = divTotal + interest;
+  const strcRunwayY = reserve / strcAnnual;
+  const globalRunwayY = reserve / globalAnnual;
+  const rwRow = (label, val, strong) => `<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);font-size:13px"><span style="color:var(--text-2)">${label}</span><span class="num" style="font-weight:${strong ? 700 : 600}">${val}</span></div>`;
+
+  const strcRunwayPanel = panel({
+    title: "STRC 股息跑道", sub: "仅 STRC · 现金储备覆盖", className: "fade",
+    body: `<div class="kpi-inline" style="margin-bottom:16px"><span class="big">${fmtRunway(strcRunwayY)}</span><span style="font-size:12px;color:${strcRunwayY < 0.5 ? "var(--neg)" : "var(--text-3)"}">可覆盖</span></div>
+      ${rwRow("USD 现金储备", usdAbbr(reserve))}
+      ${rwRow("STRC 年度现金需求", usdAbbr(strcAnnual))}
+      <div style="margin-top:14px;height:8px;border-radius:4px;background:var(--surface-3);overflow:hidden"><div style="height:100%;width:${Math.min(strcRunwayY * 100, 100)}%;background:${strcRunwayY < 0.5 ? "var(--neg)" : "var(--accent)"}"></div></div>
+      <div style="margin-top:6px;font-size:11.5px;color:var(--text-3)">储备 / 年度需求 = ${(strcRunwayY * 100).toFixed(0)}% 年覆盖</div>`,
+  });
+  const globalRunwayPanel = panel({
+    title: "全局股息 + 利息跑道", sub: "全部优先股 + 可转债利息", className: "fade",
+    body: `<div class="kpi-inline" style="margin-bottom:16px"><span class="big">${fmtRunway(globalRunwayY)}</span><span style="font-size:12px;color:${globalRunwayY < 0.5 ? "var(--neg)" : "var(--text-3)"}">可覆盖</span></div>
+      ${rwRow("年度义务总额", usdAbbr(globalAnnual), true)}
+      ${rwRow("— 优先股股息", usdAbbr(divTotal))}
+      ${rwRow("— 可转债利息", usdAbbr(interest))}
+      ${rwRow("USD 现金储备", usdAbbr(reserve))}`,
+  });
+
+  document.getElementById("view").innerHTML = head +
+    `<div class="grid cols-4" style="margin-bottom:var(--gap)">${row1}</div>
+     <div class="grid cols-4" style="margin-bottom:var(--gap)">${row2}</div>
+     <div class="grid" style="margin-bottom:var(--gap)">${chartPanel}</div>
+     <div class="grid cols-3" style="margin-bottom:var(--gap)">${prefPanel}${eightKPanel}</div>
+     <div class="grid cols-2">${strcRunwayPanel}${globalRunwayPanel}</div>` +
+    `<div class="source">数据来源：Strategy 8-K / 10-Q（手动）· MSTR/STRC 实时 Twelve Data · BTC Binance${priceLive ? "" : ` <span class="live-pill muted" style="margin-left:6px">价格离线</span>`}</div>`;
+  initChartHovers(document.getElementById("view"));
 }
 
 // =====================================================
@@ -792,7 +956,7 @@ async function renderReport() {
 const SECTIONS = [
   { id: "report", label: "今日报告", render: renderReport, async: true },
   { id: "etf", label: "ETF 资金流", render: renderETF, async: true },
-  { id: "inst", label: "机构持仓", render: renderInst },
+  { id: "inst", label: "Strategy (MSTR)", render: renderInst, async: true },
   { id: "deriv", label: "衍生品市场", render: renderDeriv },
   { id: "miner", label: "矿工", render: renderMiner },
   { id: "onchain", label: "链上指标", render: renderOnchain },
