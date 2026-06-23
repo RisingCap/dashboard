@@ -1,42 +1,39 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>HTX Research · 管理后台（本地使用）</title>
   <meta name="robots" content="noindex, nofollow"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="style.css"/>
 </head>
 <body>
 
-  <!-- ══ Header ══════════════════════════════════════ -->
-  <header class="site-header">
-    <a class="header-logo" href="index.html">
-      <div class="logo-mark">HTX</div>
-      <span class="logo-text">HTX Research</span>
-    </a>
-    <nav class="header-nav">
-      <a href="index.html" style="padding:6px 14px;font-size:13px;color:rgba(255,255,255,0.55);text-decoration:none;border-radius:6px;transition:background 0.15s,color 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.08)';this.style.color='#fff'" onmouseout="this.style.background='';this.style.color='rgba(255,255,255,0.55)'">← 返回仪表盘</a>
-    </nav>
-    <span style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.35);letter-spacing:0.5px;margin-left:auto;">管理后台 · 本地使用</span>
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="index.html">
+        <div class="brand-mark">H</div>
+        <div class="brand-name">HTX Research <span class="dim">· 管理后台</span></div>
+      </a>
+      <div class="spacer"></div>
+      <a class="nav-tab" href="index.html" style="border-color:var(--border)">← 返回仪表盘</a>
+      <button class="icon-btn" id="theme-toggle" title="切换主题">☀</button>
+    </div>
   </header>
 
-  <!-- ══ Admin Form ══════════════════════════════════ -->
-  <div class="admin-wrapper">
+  <div class="admin-wrap">
 
-    <!-- Notice -->
     <div class="admin-notice">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-        <line x1="12" y1="9" x2="12" y2="13"/>
-        <line x1="12" y1="17" x2="12.01" y2="17"/>
-      </svg>
-      <span>此页面仅供本地使用，请勿部署至公开路径。各表单生成的JSON需手动保存至对应文件：<code style="background:#FDE68A;padding:1px 5px;border-radius:3px;">posts.json</code> · <code style="background:#FDE68A;padding:1px 5px;border-radius:3px;">etf.json</code> · <code style="background:#FDE68A;padding:1px 5px;border-radius:3px;">market_brief.json</code> · <code style="background:#FDE68A;padding:1px 5px;border-radius:3px;">metrics_snapshot.json</code></span>
+      <span>此页面仅供<strong>本地使用</strong>。表单生成的 JSON 需手动保存至对应文件：<code>data/posts.json</code>（日报）与 <code>data/market_brief.json</code>（首页摘要）。保存后 <code>git push</code>，Vercel 自动部署。</span>
     </div>
 
     <!-- ① 基本信息 -->
     <div class="admin-card">
-      <h2><span>1</span> 基本信息</h2>
+      <h2><span class="badge-num">1</span> 基本信息</h2>
       <div class="form-row">
         <div class="form-group">
           <label for="post-date">日期</label>
@@ -53,130 +50,56 @@
           </select>
         </div>
       </div>
+      <div class="form-row full">
+        <div class="form-group">
+          <label for="post-title">标题（显示为日报大标题）</label>
+          <input type="text" id="post-title" placeholder="例：ETF 连续四周净流入，长期持有者成为本轮主导买盘"/>
+        </div>
+      </div>
     </div>
 
     <!-- ② 要点列表 -->
     <div class="admin-card">
-      <h2><span>2</span> 要点列表</h2>
-      <div class="dynamic-list" id="bullets-list">
-        <!-- rows injected by admin.js -->
-      </div>
-      <button type="button" class="btn-add-row" onclick="addBulletRow()" style="margin-top:10px;">
-        + 添加要点
-      </button>
+      <h2><span class="badge-num">2</span> 要点列表</h2>
+      <p class="admin-hint" style="margin:0 0 14px;">第一条要点会作为首页摘要的开头；前四条会生成「今日要点」卡片。</p>
+      <div class="dynamic-list" id="bullets-list"></div>
+      <button type="button" class="btn-add-row" onclick="addBulletRow()" style="margin-top:12px;">+ 添加要点</button>
     </div>
 
-    <!-- ④ 图表 -->
+    <!-- ③ 图表 -->
     <div class="admin-card">
-      <h2><span>3</span> 图表</h2>
-      <p style="font-size:12px;color:var(--grey-text);margin-bottom:14px;">
-        将图表文件手动放入 <code style="background:var(--grey-bg);padding:1px 5px;border-radius:3px;">assets/charts/</code> 目录，然后在此填写文件名。
-      </p>
-      <div class="dynamic-list" id="charts-list">
-        <!-- rows injected by admin.js -->
-      </div>
-      <button type="button" class="btn-add-row" onclick="addChartRow()" style="margin-top:10px;">
-        + 添加图表
-      </button>
+      <h2><span class="badge-num">3</span> 图表</h2>
+      <p class="admin-hint" style="margin:0 0 14px;">将图表文件放入 <code>assets/charts/</code> 目录后在此填写文件名；图表会显示在日报正文末尾。</p>
+      <div class="dynamic-list" id="charts-list"></div>
+      <button type="button" class="btn-add-row" onclick="addChartRow()" style="margin-top:12px;">+ 添加图表</button>
     </div>
 
-    <!-- ④ 生成JSON -->
+    <!-- ④ 生成 posts.json -->
     <div class="admin-card">
-      <h2><span>4</span> 生成JSON条目</h2>
+      <h2><span class="badge-num">4</span> 生成日报条目 <span class="file-pill">posts.json</span></h2>
       <div class="admin-actions" style="margin-bottom:16px;">
-        <button type="button" class="btn-primary" onclick="generateJSON()">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z"/>
-            <polyline points="14 2 14 8 20 8"/>
-          </svg>
-          生成JSON条目
-        </button>
+        <button type="button" class="btn-primary" onclick="generateJSON()">生成 JSON 条目</button>
       </div>
-
       <div class="json-output-wrap">
-        <textarea
-          id="json-output"
-          class="json-output"
-          readonly
-          placeholder='{
-  "id": "...",
-  "date": "...",
-  ...
-}'
-        ></textarea>
-        <button type="button" class="json-copy-btn" id="copy-json-btn" onclick="copyJSON()">
-          复制
-        </button>
+        <textarea id="json-output" class="json-output" readonly placeholder='{ "id": "...", "date": "...", ... }'></textarea>
+        <button type="button" class="json-copy-btn" id="copy-json-btn" onclick="copyJSON()">复制</button>
       </div>
-
-      <div style="margin-top:16px;padding:14px 16px;background:var(--grey-bg);border-radius:8px;border:1px solid var(--grey-border);">
-        <p style="font-size:12.5px;color:var(--navy);font-weight:600;margin-bottom:8px;">添加到 posts.json 的步骤：</p>
-        <ol style="font-size:12px;color:var(--grey-text);padding-left:18px;line-height:2;">
-          <li>点击「生成JSON条目」并复制上方内容</li>
-          <li>打开 <code style="background:#e5e7eb;padding:1px 5px;border-radius:3px;">data/posts.json</code></li>
-          <li>在数组的 <strong>最开头</strong>（第一个 <code style="background:#e5e7eb;padding:1px 5px;border-radius:3px;">[</code> 之后）粘贴该条目，末尾加逗号</li>
-          <li>将图表文件放入 <code style="background:#e5e7eb;padding:1px 5px;border-radius:3px;">assets/charts/</code></li>
-          <li>保存并 git push，GitHub Pages 自动更新</li>
-        </ol>
+      <div class="admin-hint">
+        <strong>添加步骤：</strong>① 生成并复制上方内容 ② 打开 <code>data/posts.json</code>
+        ③ 在数组最开头（第一个 <code>[</code> 之后）粘贴，并在末尾加英文逗号 <code>,</code>
+        ④ 图表文件放入 <code>assets/charts/</code> ⑤ 保存并 <code>git push</code>。
+        <br>⚠️ 务必使用英文标点（<code>,</code> <code>"</code>），中文逗号会破坏 JSON。
       </div>
     </div>
 
-    <!-- ══════════════════════════════════════════════
-         V2 SECTIONS
-         ══════════════════════════════════════════════ -->
-
-    <!-- ⑦ ETF流入更新 -->
+    <!-- ⑤ 市场简报 -->
     <div class="admin-card">
-      <h2><span>7</span> ETF净流入更新 <span style="font-size:10px;background:var(--blue);color:#fff;border-radius:10px;padding:2px 8px;font-weight:600;margin-left:4px;">etf.json</span></h2>
-      <div class="form-row">
-        <div class="form-group">
-          <label for="etf-date">日期</label>
-          <input type="date" id="etf-date"/>
-        </div>
-        <div class="form-group">
-          <label for="etf-source">数据来源</label>
-          <select id="etf-source">
-            <option value="SoSoValue">SoSoValue</option>
-            <option value="Farside">Farside</option>
-            <option value="Manual">手动录入</option>
-          </select>
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label for="etf-flow-val">净流入金额（百万美元，负数为流出）</label>
-          <input type="number" id="etf-flow-val" placeholder="例：320.5 或 -148.2" step="0.01"/>
-        </div>
-        <div class="form-group">
-          <label for="etf-note">备注</label>
-          <input type="text" id="etf-note" placeholder="例：截至美东收盘"/>
-        </div>
-      </div>
-      <div class="admin-actions" style="margin-bottom:14px;">
-        <button type="button" class="btn-primary" onclick="generateETFJson()">生成 etf.json</button>
-      </div>
-      <div class="json-output-wrap">
-        <textarea id="etf-json-output" class="json-output" readonly placeholder='{ "date": "...", "net_flow_usd_million": 0, ... }'></textarea>
-        <button type="button" class="json-copy-btn" id="etf-copy-btn" onclick="copyETFJson()">复制</button>
-      </div>
-      <p style="font-size:12px;color:var(--grey-text);margin-top:10px;">复制后覆盖替换 <code style="background:#e5e7eb;padding:1px 5px;border-radius:3px;">data/etf.json</code> 的全部内容。</p>
-    </div>
-
-    <!-- ⑧ 市场简报更新 -->
-    <div class="admin-card">
-      <h2><span>8</span> 市场简报更新 <span style="font-size:10px;background:var(--blue);color:#fff;border-radius:10px;padding:2px 8px;font-weight:600;margin-left:4px;">market_brief.json</span></h2>
-
-      <!-- Auto-generate from latest post -->
+      <h2><span class="badge-num">5</span> 首页摘要更新 <span class="file-pill">market_brief.json</span></h2>
       <div class="admin-actions" style="margin-bottom:18px;">
-        <button type="button" class="btn-secondary" id="brief-auto-btn" onclick="autoGenerateBrief()"
-          style="width:100%;justify-content:center;border-style:dashed;">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-          </svg>
-          从最新日报自动生成简报草稿
+        <button type="button" class="btn-secondary" id="brief-auto-btn" onclick="autoGenerateBrief()" style="width:100%;justify-content:center;">
+          ✦ 从最新日报自动生成摘要草稿
         </button>
       </div>
-
       <div class="form-row">
         <div class="form-group">
           <label for="brief-date">日期</label>
@@ -195,14 +118,14 @@
       </div>
       <div class="form-row full">
         <div class="form-group">
-          <label for="brief-state-label">状态标签（显示在横幅上）</label>
+          <label for="brief-state-label">状态标签</label>
           <input type="text" id="brief-state-label" placeholder="例：结构性偏多 / 机构主导"/>
         </div>
       </div>
       <div class="form-row full">
         <div class="form-group">
-          <label for="brief-text">简报正文（可在此编辑自动生成的内容）</label>
-          <textarea id="brief-text" style="min-height:120px;" placeholder="点击上方按钮从最新日报自动生成，或手动填写…"></textarea>
+          <label for="brief-text">摘要正文（显示在首页 hero 区）</label>
+          <textarea id="brief-text" placeholder="点击上方按钮从最新日报自动生成，或手动填写…"></textarea>
         </div>
       </div>
       <div class="admin-actions" style="margin-bottom:14px;">
@@ -212,67 +135,10 @@
         <textarea id="brief-json-output" class="json-output" readonly placeholder='{ "date": "...", "state_label": "...", ... }'></textarea>
         <button type="button" class="json-copy-btn" id="brief-copy-btn" onclick="copyBriefJson()">复制</button>
       </div>
-      <p style="font-size:12px;color:var(--grey-text);margin-top:10px;">复制后覆盖替换 <code style="background:#e5e7eb;padding:1px 5px;border-radius:3px;">data/market_brief.json</code> 的全部内容。</p>
+      <div class="admin-hint">复制后<strong>覆盖替换</strong> <code>data/market_brief.json</code> 的全部内容。</div>
     </div>
 
-    <!-- ⑨ 指标快照更新 — OI only -->
-    <div class="admin-card">
-      <h2><span>9</span> 未平仓合约更新 <span style="font-size:10px;background:var(--blue);color:#fff;border-radius:10px;padding:2px 8px;font-weight:600;margin-left:4px;">metrics_snapshot.json</span></h2>
-
-      <!-- Info box: what's already automated -->
-      <div style="background:var(--blue-light);border:1px solid #BFDBFE;border-radius:8px;padding:12px 14px;margin-bottom:18px;font-size:12.5px;color:#1E40AF;line-height:1.8;">
-        <strong>只需填写 OI</strong> — 其他三个指标已自动处理：<br>
-        ✓ BTC实时价格 → Binance API 自动拉取<br>
-        ✓ 恐惧贪婪指数 → Alternative.me API 自动拉取<br>
-        ✓ ETF净流入 → 已在第 7 节单独更新
-      </div>
-
-      <div class="form-row">
-        <div class="form-group">
-          <label for="metrics-date">日期</label>
-          <input type="date" id="metrics-date"/>
-        </div>
-        <div class="form-group">
-          <label for="oi-source">数据来源</label>
-          <input type="text" id="oi-source" value="CoinGlass"/>
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label for="oi-value">未平仓合约数值</label>
-          <input type="text" id="oi-value" placeholder="例：256,987 BTC"/>
-        </div>
-        <div class="form-group">
-          <label for="oi-delta">变化说明</label>
-          <input type="text" id="oi-delta" placeholder="例：-2.1% 日环比"/>
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label for="oi-dir">方向</label>
-          <select id="oi-dir">
-            <option value="up">↑ 上升 (绿)</option>
-            <option value="down" selected>↓ 下降 (红)</option>
-            <option value="neutral">— 中性 (灰)</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="admin-actions" style="margin-bottom:14px;">
-        <button type="button" class="btn-primary" onclick="generateMetricsJson()">生成 metrics_snapshot.json</button>
-      </div>
-      <div class="json-output-wrap">
-        <textarea id="metrics-json-output" class="json-output" readonly placeholder='{ "date": "...", "oi_value": "...", ... }'></textarea>
-        <button type="button" class="json-copy-btn" id="metrics-copy-btn" onclick="copyMetricsJson()">复制</button>
-      </div>
-      <p style="font-size:12px;color:var(--grey-text);margin-top:10px;">复制后覆盖替换 <code style="background:#e5e7eb;padding:1px 5px;border-radius:3px;">data/metrics_snapshot.json</code> 的全部内容。</p>
-    </div>
-
-  </div><!-- /.admin-wrapper -->
-
-  <footer class="site-footer">
-    <div>HTX Research 管理后台 · 仅供本地使用 · <a href="index.html" style="color:var(--blue);">返回仪表盘</a></div>
-  </footer>
+  </div>
 
   <script src="admin.js"></script>
 </body>

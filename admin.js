@@ -65,50 +65,12 @@ function escAttr(str) {
     .replace(/>/g, "&gt;");
 }
 
-// ── Auto-convert tweet text to bullet points ──────────
-
-function autoConvertTweet() {
-  const src = document.getElementById("source-post").value.trim();
-  if (!src) {
-    alert("请先在「原始推文」输入框中粘贴推文内容");
-    return;
-  }
-
-  // Split on newlines, then on ". " for long sentences
-  const rawLines = src.split(/\n+/);
-  const bullets  = [];
-
-  rawLines.forEach(line => {
-    line = line.trim();
-    if (!line) return;
-    // Skip lines that look like metadata / tags / handles
-    if (/^[@#]/.test(line)) return;
-    if (/^(net pressure|source:|snapshot)/i.test(line)) return;
-    if (line.length < 10) return;
-
-    // Split long lines on period+space boundaries
-    const subs = line.split(/(?<=[一-龥a-z0-9%$])\. (?=[A-Z一-龥])/);
-    subs.forEach(s => {
-      s = s.trim().replace(/\.$/, "");
-      if (s.length >= 8) bullets.push(s);
-    });
-  });
-
-  if (bullets.length === 0) {
-    alert("未能自动识别出要点，请手动填写");
-    return;
-  }
-
-  // Clear existing bullet rows
-  document.getElementById("bullets-list").innerHTML = "";
-  bullets.forEach(b => addBulletRow(b));
-}
-
 // ── Generate JSON entry ───────────────────────────────
 
 function generateJSON() {
   const date    = document.getElementById("post-date").value;
   const verdict = document.getElementById("post-verdict").value;
+  const title   = document.getElementById("post-title").value.trim();
 
   if (!date) {
     alert("请选择日期");
@@ -142,7 +104,7 @@ function generateJSON() {
   const entry = {
     id:            date,
     date:          date,
-    title:         "BTC市场参与者日报",
+    title:         title || "BTC市场参与者日报",
     verdict:       verdict,
     verdict_color: verdictColor,
     bullets:       bullets,
@@ -182,30 +144,8 @@ function copyJSON() {
 //  V2 — ETF流入 JSON generator
 // ══════════════════════════════════════════════════════
 
-function generateETFJson() {
-  const date   = document.getElementById("etf-date").value;
-  const flow   = parseFloat(document.getElementById("etf-flow-val").value);
-  const source = document.getElementById("etf-source").value;
-  const note   = document.getElementById("etf-note").value.trim();
-
-  if (!date || isNaN(flow)) {
-    alert("请填写日期和净流入金额");
-    return;
-  }
-
-  const sign  = flow >= 0 ? "+" : "-";
-  const label = sign + "$" + Math.abs(flow).toFixed(2) + "M";
-
-  const entry = { date, net_flow_usd_million: flow, label, source, note };
-  document.getElementById("etf-json-output").value = JSON.stringify(entry, null, 2);
-}
-
-function copyETFJson() {
-  copyFromTextarea("etf-json-output", "etf-copy-btn");
-}
-
 // ══════════════════════════════════════════════════════
-//  V2 — 市场简报 JSON generator
+//  市场简报 JSON generator
 // ══════════════════════════════════════════════════════
 
 // Auto-fill brief form from latest post in posts.json
@@ -284,31 +224,6 @@ function copyBriefJson() {
   copyFromTextarea("brief-json-output", "brief-copy-btn");
 }
 
-// ══════════════════════════════════════════════════════
-//  V2 — 指标快照 JSON generator (OI only)
-//  BTC price → live Binance   (no manual input needed)
-//  Fear & Greed → live Alt.me (no manual input needed)
-//  ETF flow → etf.json form   (Section 7)
-//  OI → this form only
-// ══════════════════════════════════════════════════════
-
-function generateMetricsJson() {
-  const date      = document.getElementById("metrics-date").value;
-  const oi_value  = document.getElementById("oi-value").value.trim();
-  const oi_delta  = document.getElementById("oi-delta").value.trim();
-  const oi_dir    = document.getElementById("oi-dir").value;
-  const oi_source = document.getElementById("oi-source").value.trim();
-
-  if (!date) { alert("请填写日期"); return; }
-
-  const entry = { date, oi_value, oi_delta, oi_delta_dir: oi_dir, oi_source };
-  document.getElementById("metrics-json-output").value = JSON.stringify(entry, null, 2);
-}
-
-function copyMetricsJson() {
-  copyFromTextarea("metrics-json-output", "metrics-copy-btn");
-}
-
 // ── Shared copy helper ────────────────────────────────
 
 function copyFromTextarea(textareaId, btnId) {
@@ -329,11 +244,27 @@ document.addEventListener("DOMContentLoaded", () => {
   const today = new Date().toISOString().split("T")[0];
   document.getElementById("post-date").value = today;
 
-  // Pre-fill v2 date fields
-  ["etf-date", "brief-date", "metrics-date"].forEach(id => {
+  // Pre-fill date fields
+  ["brief-date"].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = today;
   });
+
+  // Theme toggle (matches dashboard)
+  const root = document.documentElement;
+  const saved = localStorage.getItem("htx-theme");
+  if (saved) root.setAttribute("data-theme", saved);
+  const tbtn = document.getElementById("theme-toggle");
+  if (tbtn) {
+    const sync = () => { tbtn.textContent = root.getAttribute("data-theme") === "dark" ? "☾" : "☀"; };
+    sync();
+    tbtn.addEventListener("click", () => {
+      const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+      root.setAttribute("data-theme", next);
+      localStorage.setItem("htx-theme", next);
+      sync();
+    });
+  }
 
   // Seed with one empty bullet and one empty chart row
   addBulletRow();
