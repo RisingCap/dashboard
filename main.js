@@ -451,16 +451,17 @@ function mapETFHistory(h) {
   const arr = Array.isArray(h) ? h : (h && (h.list || h.data)) || [];
   if (!arr.length) return null;
   const rows = arr.map((r) => ({
-    date: (sv(r.date) || sv(r.dataDate) || sv(r.day) || "").toString().slice(5),
+    full: (sv(r.date) || sv(r.dataDate) || sv(r.day) || "").toString(),
     inflow: nf(r.totalNetInflow != null ? r.totalNetInflow : (r.netInflow != null ? r.netInflow : (r.dailyNetInflow != null ? r.dailyNetInflow : r.value))) / 1e6,
-    cum: nf(r.cumNetInflow != null ? r.cumNetInflow : r.totalNetAssets) / 1e6,
-  })).filter((r) => r.date);
-  rows.sort((a, b) => a.date.localeCompare(b.date));
+  })).filter((r) => r.full);
+  // sort by FULL ISO date so slice(-30) is the most-recent 30 days (not MM-DD lexical)
+  rows.sort((a, b) => a.full.localeCompare(b.full));
   const last = rows.slice(-30);
+  let run = 0;
   return {
-    days: last.map((r) => r.date),
+    days: last.map((r) => r.full.slice(5)),
     netFlow: last.map((r) => r.inflow),
-    cumulative: last.map((r) => r.cum),
+    cumulative: last.map((r) => (run += r.inflow)), // 30-day running sum of net flow
   };
 }
 
