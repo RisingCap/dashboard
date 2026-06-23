@@ -380,50 +380,149 @@ const source = (t) => `<div class="source">数据来源：${esc(t)}</div>`;
 const legendKey = (color, label) => `<span class="key"><span class="swatch" style="background:${color}"></span>${esc(label)}</span>`;
 
 // =====================================================
-//  SECTION: ETF 资金流
+//  SECTION: ETF 资金流  (live via /api/etf-metrics + /api/etf-history)
 // =====================================================
-function renderETF() {
-  const d = DASH.etf;
+
+// SoSoValue value-object helpers
+const sv = (o) => (o && typeof o === "object" && "value" in o) ? o.value : o;
+const nf = (v) => { const x = parseFloat(sv(v)); return isNaN(x) ? 0 : x; };
+function usdAbbr(v, signed = false) {
+  const a = Math.abs(v), sign = v < 0 ? "-" : (signed ? "+" : "");
+  if (a >= 1e9) return sign + "$" + (a / 1e9).toFixed(2) + "B";
+  if (a >= 1e6) return sign + "$" + (a / 1e6).toFixed(2) + "M";
+  if (a >= 1e3) return sign + "$" + (a / 1e3).toFixed(2) + "K";
+  return sign + "$" + a.toFixed(2);
+}
+
+async function loadETF() {
+  let metrics = null, history = null;
+  try { const r = await fetch("/api/etf-metrics"); if (r.ok) { const j = await r.json(); metrics = (j && j.data) || j; } } catch (_) {}
+  try { const r = await fetch("/api/etf-history"); if (r.ok) { const j = await r.json(); history = (j && j.data) || j; } } catch (_) {}
+  return { metrics, history };
+}
+
+// Normalise the metrics payload → the shape the panels render from.
+function mapETFMetrics(m) {
+  const totalAssets = nf(m.totalNetAssets);
+  const funds = (m.list || []).map((f) => {
+    const aumM = nf(f.netAssets) / 1e6;          // millions
+    const flowM = nf(f.dailyNetInflow) / 1e6;    // millions
+    return {
+      name: (sv(f.ticker) || "").toString().trim(),
+      issuer: (sv(f.institute) || "").toString().trim(),
+      flow: flowM,
+      aum: aumM,
+      share: totalAssets ? (nf(f.netAssets) / totalAssets) * 100 : 0,
+      on: nf(f.dailyNetInflow) >= 0,
+    };
+  }).filter((f) => f.name).sort((a, b) => b.aum - a.aum);
+
+  return {
+    date: sv(m.totalNetAssets && m.totalNetAssets.lastUpdateDate) || sv(m.dailyNetInflow && m.dailyNetInflow.lastUpdateDate) || "",
+    dailyNetInflow: nf(m.dailyNetInflow),
+    cumNetInflow: nf(m.cumNetInflow),
+    dailyTraded: nf(m.dailyTotalValueTraded),
+    totalAssets,
+    holdings: nf(m.totalTokenHoldings),
+    pct: nf(m.totalNetAssetsPercentage),
+    funds,
+  };
+}
+
+// Normalise history payload → { days[], netFlow[], cumulative[] } (millions).
+// SoSoValue's historicalInflowChart shape is mapped defensively across field names.
+function mapETFHistory(h) {
+  const arr = Array.isArray(h) ? h : (h && (h.list || h.data)) || [];
+  if (!arr.length) return null;
+  const rows = arr.map((r) => ({
+    date: (sv(r.date) || sv(r.dataDate) || sv(r.day) || "").toString().slice(5),
+    inflow: nf(r.totalNetInflow != null ? r.totalNetInflow : (r.netInflow != null ? r.netInflow : (r.dailyNetInflow != null ? r.dailyNetInflow : r.value))) / 1e6,
+    cum: nf(r.cumNetInflow != null ? r.cumNetInflow : r.totalNetAssets) / 1e6,
+  })).filter((r) => r.date);
+  rows.sort((a, b) => a.date.localeCompare(b.date));
+  const last = rows.slice(-30);
+  return {
+    days: last.map((r) => r.date),
+    netFlow: last.map((r) => r.inflow),
+    cumulative: last.map((r) => r.cum),
+  };
+}
+
+async function renderETF() {
+  const head = sectionHeader({
+    eyebrow: "Participant 01 · ETF Flows", title: "ETF 资金流向",
+    sub: "追踪美国现货 BTC ETF 的每日申购赎回、累计净流入与各发行商持仓份额。", live: true,
+    right: segMarkup(["日", "周", "月"], "日"),
+  });
+  document.getElementById("view").innerHTML = head +
+    `<div class="grid cols-4" style="margin-bottom:var(--gap)">${[0, 1, 2, 3].map(() => `<div class="skeleton"></div>`).join("")}</div>
+     <div class="grid cols-3"><div class="skeleton span-2" style="height:260px"></div><div class="skeleton" style="height:260px"></div></div>`;
+
+  const { metrics, history } = await loadETF();
+
+  // Fallback to mock if the live API is unavailable.
+  let d, live = true, hist = null;
+  if (metrics && metrics.list) {
+    d = mapETFMetrics(metrics);
+    hist = history ? mapETFHistory(history) : null;
+  } else {
+    live = false;
+    const mk = DASH.etf;
+    d = {
+      date: "示例", dailyNetInflow: 312e6, cumNetInflow: 53.3e9, dailyTraded: 1.87e9,
+      totalAssets: 84.9e9, holdings: 1182400, pct: 0.0597,
+      funds: mk.funds.map((f) => ({ ...f })),
+    };
+    hist = { days: mk.days, netFlow: mk.netFlow, cumulative: mk.cumulative };
+  }
+  if (!hist) hist = { days: DASH.etf.days, netFlow: DASH.etf.netFlow, cumulative: DASH.etf.cumulative };
+
   const palette = ["var(--accent)", "color-mix(in oklab,var(--accent) 70%,var(--text-3))",
     "color-mix(in oklab,var(--accent) 45%,var(--text-3))", "var(--text-3)", "var(--surface-3)"];
   const donutData = d.funds.filter((f) => f.aum > 0).slice(0, 5).map((f, i) => ({ label: f.name, value: f.aum, color: palette[i] }));
 
-  const cards = d.summary.map((s, i) => statCard(s, i, i < 2 ? d.netFlow.slice(-12) : undefined)).join("");
+  const summary = [
+    { label: "净流入 · 今日", value: usdAbbr(d.dailyNetInflow, true), sub: "截至 " + d.date },
+    { label: "累计净流入", value: usdAbbr(d.cumNetInflow), sub: "截至 " + d.date },
+    { label: "ETF 总持仓", value: Math.round(d.holdings).toLocaleString() + " BTC", sub: "≈ " + usdAbbr(d.totalAssets) + " AUM" },
+    { label: "占 BTC 市值", value: (d.pct * 100).toFixed(2) + "%", sub: "现货 ETF 持仓占比" },
+  ];
+  const cards = summary.map((s, i) => statCard(s, i, i === 0 && hist.netFlow ? hist.netFlow.slice(-12) : undefined)).join("");
+
+  const liveOrMock = live ? "" : `<span class="live-pill muted" style="margin-left:8px">示例数据 · 实时不可用</span>`;
+  const histLive = (live && history) ? "" : `<span class="panel-sub" style="margin-left:8px">· 示例序列</span>`;
 
   const flowPanel = panel({
     title: "净流入 / 流出", sub: "单位：百万美元 (USD M) · 近 30 日", className: "span-2 fade",
     right: `<div class="legend">${legendKey("var(--accent)", "净流入")}${legendKey("var(--neg)", "净流出")}</div>`,
-    body: flowBars(d.netFlow, 220) + `<div class="num" style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--text-3)"><span>${d.days[0]}</span><span>${d.days[14]}</span><span>${d.days[29]}</span></div>`,
+    body: flowBars(hist.netFlow, 220) + `<div class="num" style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--text-3)"><span>${esc(hist.days[0] || "")}</span><span>${esc(hist.days[Math.floor(hist.days.length / 2)] || "")}</span><span>${esc(hist.days[hist.days.length - 1] || "")}</span></div>`,
   });
   const donutPanel = panel({
     title: "持仓份额", sub: "按 AUM · Top 5", className: "fade",
     body: `<div class="viz-center" style="position:relative">${donut(donutData, 170, 20)}
-      <div style="position:absolute;text-align:center"><div class="num" style="font-size:22px;font-weight:700;letter-spacing:-0.02em">$84.9B</div><div style="font-size:11px;color:var(--text-3)">总 AUM</div></div></div>
-      <div class="legend" style="margin-top:14px;flex-direction:column;gap:7px">${donutData.map((s) => `<span class="key" style="justify-content:space-between;width:100%"><span><span class="swatch" style="background:${s.color}"></span>${esc(s.label)}</span><span class="num" style="color:var(--text-3)">$${(s.value / 1000).toFixed(1)}B</span></span>`).join("")}</div>`,
+      <div style="position:absolute;text-align:center"><div class="num" style="font-size:21px;font-weight:700;letter-spacing:-0.02em">${usdAbbr(d.totalAssets)}</div><div style="font-size:11px;color:var(--text-3)">总 AUM</div></div></div>
+      <div class="legend" style="margin-top:14px;flex-direction:column;gap:7px">${donutData.map((s) => `<span class="key" style="justify-content:space-between;width:100%"><span><span class="swatch" style="background:${s.color}"></span>${esc(s.label)}</span><span class="num" style="color:var(--text-3)">${usdAbbr(s.value * 1e6)}</span></span>`).join("")}</div>`,
   });
 
-  const cumPanel = panel({ title: "累计净流入趋势", sub: "单位：百万美元 · 自基准日累计", className: "fade", body: areaChart(d.cumulative, 200) });
+  const cumPanel = panel({ title: "累计净流入趋势", sub: "单位：百万美元 · 近 30 日累计" + (histLive ? " · 示例序列" : ""), className: "fade", body: areaChart(hist.cumulative, 200) });
 
   const fundRows = d.funds.map((f) => `<tr>
     <td class="name">${esc(f.name)}</td>
     <td style="color:var(--text-2)">${esc(f.issuer)}</td>
-    <td class="r num ${f.flow >= 0 ? "pos" : "neg"}" style="font-weight:600">${f.flow >= 0 ? "+" : ""}${f.flow}M</td>
+    <td class="r num ${f.flow >= 0 ? "pos" : "neg"}" style="font-weight:600">${f.flow >= 0 ? "+" : ""}${f.flow.toFixed(1)}M</td>
     <td class="r num" style="color:var(--text-2)">$${(f.aum / 1000).toFixed(1)}B</td>
-    <td class="bar-cell"><div style="display:flex;align-items:center;gap:10px"><div class="bar-bg" style="flex:1"><div class="bar-fill" style="width:${f.share}%"></div></div><span class="num" style="font-size:12px;color:var(--text-3);width:40px">${f.share}%</span></div></td>
+    <td class="bar-cell"><div style="display:flex;align-items:center;gap:10px"><div class="bar-bg" style="flex:1"><div class="bar-fill" style="width:${Math.min(f.share, 100)}%"></div></div><span class="num" style="font-size:12px;color:var(--text-3);width:42px">${f.share.toFixed(1)}%</span></div></td>
     <td class="r"><span class="tag ${f.on ? "on" : "off"}">${f.on ? "净流入" : "净流出"}</span></td></tr>`).join("");
   const tablePanel = panel({
-    title: "各基金明细", sub: "资金流向 · 日频", className: "fade",
-    body: `<table class="tbl"><thead><tr><th>基金</th><th>发行商</th><th class="r">净流入</th><th class="r">AUM</th><th style="width:26%">份额</th><th class="r">状态</th></tr></thead><tbody>${fundRows}</tbody></table>`,
+    title: "各基金明细", sub: "按总净资产排序 · 当日", className: "fade",
+    body: `<table class="tbl"><thead><tr><th>基金</th><th>发行商</th><th class="r">日净流入</th><th class="r">AUM</th><th style="width:26%">份额</th><th class="r">状态</th></tr></thead><tbody>${fundRows}</tbody></table>`,
   });
 
-  return sectionHeader({
-    eyebrow: "Participant 01 · ETF Flows", title: "ETF 资金流向",
-    sub: "追踪美国现货 BTC ETF 的每日申购赎回、累计净流入与各发行商持仓份额。", live: true,
-    right: segMarkup(["日", "周", "月"], "日"),
-  }) +
+  document.getElementById("view").innerHTML = head +
     `<div class="grid cols-4" style="margin-bottom:var(--gap)">${cards}</div>
      <div class="grid cols-3" style="margin-bottom:var(--gap)">${flowPanel}${donutPanel}</div>
-     ${cumPanel}<div style="height:var(--gap)"></div>${tablePanel}` + source("SoSoValue · Farside Investors");
+     ${cumPanel}<div style="height:var(--gap)"></div>${tablePanel}` +
+    `<div class="source">数据来源：SoSoValue${liveOrMock}</div>`;
 }
 
 // =====================================================
@@ -672,7 +771,7 @@ async function renderReport() {
 // =====================================================
 const SECTIONS = [
   { id: "report", label: "今日报告", render: renderReport, async: true },
-  { id: "etf", label: "ETF 资金流", render: renderETF },
+  { id: "etf", label: "ETF 资金流", render: renderETF, async: true },
   { id: "inst", label: "机构持仓", render: renderInst },
   { id: "deriv", label: "衍生品市场", render: renderDeriv },
   { id: "miner", label: "矿工", render: renderMiner },
