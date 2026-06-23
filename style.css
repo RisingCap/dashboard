@@ -408,3 +408,15 @@ body {
 .admin-hint { font-size: 12px; color: var(--text-3); margin-top: 10px; line-height: 1.8; }
 .admin-hint code { background: var(--surface-3); padding: 1px 5px; border-radius: 4px; font-family: var(--font-mono); }
 @media (max-width: 620px) { .form-row { grid-template-columns: 1fr; } }
+
+/* ---------------- chart hover tooltip ---------------- */
+.chart-hit { position: relative; }
+.chart-hit .hit-line { position: absolute; top: 0; bottom: 0; width: 1px;
+  background: var(--border-strong); opacity: 0; pointer-events: none; transition: opacity .1s ease; }
+.chart-tip { position: fixed; z-index: 90; pointer-events: none; background: var(--surface);
+  border: var(--border-w) solid var(--border-strong); border-radius: 9px; box-shadow: var(--shadow-lg);
+  padding: 7px 11px; font-size: 12px; color: var(--text); opacity: 0; transition: opacity .1s ease;
+  transform: translate(-50%, -132%); white-space: nowrap; }
+.chart-tip .tt-label { color: var(--text-3); font-size: 11px; margin-bottom: 2px; }
+.chart-tip .tt-val { font-weight: 700; font-family: var(--num-font); letter-spacing: -0.01em; }
+[data-seg] { cursor: pointer; }

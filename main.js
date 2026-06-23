@@ -146,6 +146,18 @@ const TONE = { up: "var(--pos)", down: "var(--neg)", neutral: "var(--text-3)" };
 // =====================================================
 const VB_W = 600;
 
+// Wrap a chart SVG with hover metadata: data-points = [{l:label, v:formatted}]
+function hitWrap(svg, values, meta) {
+  const labels = meta && meta.labels;
+  const fmt = (meta && meta.format) || ((v) => String(v));
+  const pts = values.map((v, i) => ({
+    l: labels && labels[i] != null ? String(labels[i]) : "#" + (i + 1),
+    v: fmt(v),
+  }));
+  const json = JSON.stringify(pts).replace(/'/g, "&#39;");
+  return `<div class="chart-hit" data-points='${json}'>${svg}<div class="hit-line"></div></div>`;
+}
+
 function nicePath(values, w, h, pad) {
   const min = Math.min(...values), max = Math.max(...values);
   const span = (max - min) || 1;
@@ -162,7 +174,7 @@ function nicePath(values, w, h, pad) {
   return { d, pts };
 }
 
-function areaChart(values, height = 200, color = "var(--accent)") {
+function areaChart(values, height = 200, color = "var(--accent)", meta = null) {
   const w = VB_W, h = height, pad = 14;
   const { d, pts } = nicePath(values, w, h, pad);
   const last = pts[pts.length - 1];
@@ -173,7 +185,7 @@ function areaChart(values, height = 200, color = "var(--accent)") {
     const y = pad + (i / (ticks - 1)) * (h - pad * 2);
     lines += `<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="var(--border)" stroke-width="1"/>`;
   }
-  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${height}" preserveAspectRatio="none" style="display:block;overflow:visible">
+  const svg = `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${height}" preserveAspectRatio="none" style="display:block;overflow:visible">
     <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="${color}" stop-opacity="0.28"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/>
     </linearGradient></defs>
@@ -183,9 +195,10 @@ function areaChart(values, height = 200, color = "var(--accent)") {
     <circle cx="${last[0]}" cy="${last[1]}" r="3.5" fill="${color}"/>
     <circle cx="${last[0]}" cy="${last[1]}" r="6.5" fill="none" stroke="${color}" stroke-width="1.5" opacity="0.4"/>
   </svg>`;
+  return hitWrap(svg, values, meta);
 }
 
-function flowBars(values, height = 200, color = "var(--accent)", neg = "var(--neg)") {
+function flowBars(values, height = 200, color = "var(--accent)", neg = "var(--neg)", meta = null) {
   const w = VB_W, h = height, pad = 12;
   const max = Math.max(...values.map(Math.abs)) || 1;
   const zeroY = h / 2, bw = (w - pad * 2) / values.length;
@@ -196,11 +209,12 @@ function flowBars(values, height = 200, color = "var(--accent)", neg = "var(--ne
     const y = v >= 0 ? zeroY - bh : zeroY;
     bars += `<rect x="${x}" y="${y}" width="${bw * 0.64}" height="${Math.max(bh, 1)}" rx="2" fill="${v >= 0 ? color : neg}" opacity="${i === values.length - 1 ? 1 : 0.82}"/>`;
   });
-  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${height}" preserveAspectRatio="none" style="display:block">
+  const svg = `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${height}" preserveAspectRatio="none" style="display:block">
     <line x1="0" y1="${zeroY}" x2="${w}" y2="${zeroY}" stroke="var(--border-strong)" stroke-width="1"/>${bars}</svg>`;
+  return hitWrap(svg, values, meta);
 }
 
-function lineChart(values, values2, height = 200, color = "var(--accent)", color2 = "var(--text-3)") {
+function lineChart(values, values2, height = 200, color = "var(--accent)", color2 = "var(--text-3)", meta = null) {
   const w = VB_W, h = height, pad = 14;
   const all = values2 ? values.concat(values2) : values;
   const min = Math.min(...all), max = Math.max(...all), span = (max - min) || 1;
@@ -217,11 +231,12 @@ function lineChart(values, values2, height = 200, color = "var(--accent)", color
   const a = toPath(values), b = values2 ? toPath(values2) : null;
   let lines = "";
   for (let i = 0; i < 4; i++) { const y = pad + (i / 3) * (h - pad * 2); lines += `<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="var(--border)" stroke-width="1"/>`; }
-  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${height}" preserveAspectRatio="none" style="display:block;overflow:visible">
+  const svg = `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${height}" preserveAspectRatio="none" style="display:block;overflow:visible">
     ${lines}
     ${b ? `<path d="${b.d}" fill="none" stroke="${color2}" stroke-width="1.6" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"/>` : ""}
     <path d="${a.d}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
     <circle cx="${a.last[0]}" cy="${a.last[1]}" r="3.5" fill="${color}"/></svg>`;
+  return hitWrap(svg, values, meta);
 }
 
 function sparkline(values, color = "var(--accent)", height = 36, width = 110) {
@@ -236,7 +251,8 @@ function donut(data, size = 180, thickness = 22) {
   let offset = 0, segs = "";
   data.forEach((d) => {
     const dash = (d.value / total) * c;
-    segs += `<circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${d.color}" stroke-width="${thickness}" stroke-dasharray="${dash} ${c - dash}" stroke-dashoffset="${-offset}" stroke-linecap="butt"/>`;
+    const tipVal = d.tip != null ? d.tip : String(d.value);
+    segs += `<circle data-seg="1" data-label="${esc(d.label)}" data-val="${esc(tipVal)}" cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${d.color}" stroke-width="${thickness}" stroke-dasharray="${dash} ${c - dash}" stroke-dashoffset="${-offset}" stroke-linecap="butt"/>`;
     offset += dash;
   });
   return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}"><g transform="rotate(-90 ${size / 2} ${size / 2})">${segs}</g></svg>`;
@@ -479,7 +495,9 @@ async function renderETF() {
 
   const palette = ["var(--accent)", "color-mix(in oklab,var(--accent) 70%,var(--text-3))",
     "color-mix(in oklab,var(--accent) 45%,var(--text-3))", "var(--text-3)", "var(--surface-3)"];
-  const donutData = d.funds.filter((f) => f.aum > 0).slice(0, 5).map((f, i) => ({ label: f.name, value: f.aum, color: palette[i] }));
+  const donutData = d.funds.filter((f) => f.aum > 0).slice(0, 5).map((f, i) => ({ label: f.name, value: f.aum, tip: usdAbbr(f.aum * 1e6), color: palette[i] }));
+  const flowMeta = { labels: hist.days, format: (v) => usdAbbr(v * 1e6, true) };
+  const cumMeta = { labels: hist.days, format: (v) => usdAbbr(v * 1e6) };
 
   const summary = [
     { label: "净流入 · 今日", value: usdAbbr(d.dailyNetInflow, true), sub: "截至 " + d.date },
@@ -495,7 +513,7 @@ async function renderETF() {
   const flowPanel = panel({
     title: "净流入 / 流出", sub: "单位：百万美元 (USD M) · 近 30 日", className: "span-2 fade",
     right: `<div class="legend">${legendKey("var(--accent)", "净流入")}${legendKey("var(--neg)", "净流出")}</div>`,
-    body: flowBars(hist.netFlow, 220) + `<div class="num" style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--text-3)"><span>${esc(hist.days[0] || "")}</span><span>${esc(hist.days[Math.floor(hist.days.length / 2)] || "")}</span><span>${esc(hist.days[hist.days.length - 1] || "")}</span></div>`,
+    body: flowBars(hist.netFlow, 220, "var(--accent)", "var(--neg)", flowMeta) + `<div class="num" style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--text-3)"><span>${esc(hist.days[0] || "")}</span><span>${esc(hist.days[Math.floor(hist.days.length / 2)] || "")}</span><span>${esc(hist.days[hist.days.length - 1] || "")}</span></div>`,
   });
   const donutPanel = panel({
     title: "持仓份额", sub: "按 AUM · Top 5", className: "fade",
@@ -504,7 +522,7 @@ async function renderETF() {
       <div class="legend" style="margin-top:14px;flex-direction:column;gap:7px">${donutData.map((s) => `<span class="key" style="justify-content:space-between;width:100%"><span><span class="swatch" style="background:${s.color}"></span>${esc(s.label)}</span><span class="num" style="color:var(--text-3)">${usdAbbr(s.value * 1e6)}</span></span>`).join("")}</div>`,
   });
 
-  const cumPanel = panel({ title: "累计净流入趋势", sub: "单位：百万美元 · 近 30 日累计" + (histLive ? " · 示例序列" : ""), className: "fade", body: areaChart(hist.cumulative, 200) });
+  const cumPanel = panel({ title: "累计净流入趋势", sub: "单位：百万美元 · 近 30 日累计" + (histLive ? " · 示例序列" : ""), className: "fade", body: areaChart(hist.cumulative, 200, "var(--accent)", cumMeta) });
 
   const fundRows = d.funds.map((f) => `<tr>
     <td class="name">${esc(f.name)}</td>
@@ -523,6 +541,7 @@ async function renderETF() {
      <div class="grid cols-3" style="margin-bottom:var(--gap)">${flowPanel}${donutPanel}</div>
      ${cumPanel}<div style="height:var(--gap)"></div>${tablePanel}` +
     `<div class="source">数据来源：SoSoValue${liveOrMock}</div>`;
+  initChartHovers(document.getElementById("view"));
 }
 
 // =====================================================
@@ -533,7 +552,7 @@ function renderInst() {
   const cards = d.summary.map((s, i) => statCard(s, i)).join("");
   const growthPanel = panel({
     title: "上市公司 BTC 储备总量", sub: "近 30 日 · 单位 BTC", className: "fade",
-    body: areaChart(d.growth, 200) + `<div class="num" style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--text-3)"><span>${d.days[0]}</span><span>${d.days[29]}</span></div>`,
+    body: areaChart(d.growth, 200, "var(--accent)", { labels: d.days, format: (v) => Math.round(v).toLocaleString() + " BTC" }) + `<div class="num" style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--text-3)"><span>${d.days[0]}</span><span>${d.days[29]}</span></div>`,
   });
   const tot = d.holders.reduce((s, h) => s + h.btc, 0);
   const rows = d.holders.map((h) => `<tr>
@@ -560,8 +579,8 @@ function renderInst() {
 function renderDeriv() {
   const d = DASH.deriv;
   const cards = d.summary.map((s, i) => statCard(s, i, i === 1 ? d.funding.slice(-12) : i === 0 ? d.oi.slice(-12) : undefined)).join("");
-  const fundingPanel = panel({ title: "资金费率", sub: "8h · OI 加权 · 近 30 日 (%)", className: "fade", body: lineChart(d.funding, null, 190) });
-  const oiPanel = panel({ title: "未平仓合约 OI", sub: "单位：十亿美元 · 近 30 日", className: "fade", body: areaChart(d.oi, 190) });
+  const fundingPanel = panel({ title: "资金费率", sub: "8h · OI 加权 · 近 30 日 (%)", className: "fade", body: lineChart(d.funding, null, 190, "var(--accent)", "var(--text-3)", { labels: d.days, format: (v) => v + "%" }) });
+  const oiPanel = panel({ title: "未平仓合约 OI", sub: "单位：十亿美元 · 近 30 日", className: "fade", body: areaChart(d.oi, 190, "var(--accent)", { labels: d.days, format: (v) => "$" + v + "B" }) });
   const liqPanel = panel({
     title: "24h 爆仓分布", sub: "按交易所 · 多 / 空", className: "span-2 fade",
     right: `<div class="legend">${legendKey("var(--neg)", "多头爆仓")}${legendKey("var(--pos)", "空头爆仓")}</div>`,
@@ -585,8 +604,8 @@ function renderMiner() {
   const d = DASH.miner, sd = d.shutdown;
   const pricePct = ((sd.price - sd.low) / (sd.high - sd.low)) * 100;
   const cards = d.summary.map((s, i) => statCard(s, i, i === 3 ? d.hashrate.slice(-12) : i === 2 ? d.hashprice.slice(-12) : undefined)).join("");
-  const hashratePanel = panel({ title: "全网算力", sub: "EH/s · 7日均 · 近 30 日", className: "fade", body: areaChart(d.hashrate, 190) });
-  const hashpricePanel = panel({ title: "哈希价格", sub: "USD / PH/s · 矿工盈利能力", className: "fade", body: lineChart(d.hashprice, null, 190, "var(--neg)") });
+  const hashratePanel = panel({ title: "全网算力", sub: "EH/s · 7日均 · 近 30 日", className: "fade", body: areaChart(d.hashrate, 190, "var(--accent)", { labels: d.days, format: (v) => v + " EH/s" }) });
+  const hashpricePanel = panel({ title: "哈希价格", sub: "USD / PH/s · 矿工盈利能力", className: "fade", body: lineChart(d.hashprice, null, 190, "var(--neg)", "var(--text-3)", { labels: d.days, format: (v) => "$" + v }) });
   const rigRows = d.rigs.map((r) => `<tr>
     <td class="name">${esc(r.model)}</td>
     <td class="r num" style="color:var(--text-2)">${r.eff}</td>
@@ -621,12 +640,12 @@ function renderOnchain() {
     title: "MVRV-Z Score", sub: "估值带 · >7 过热 / <0 低估", className: "fade",
     body: `<div class="viz-center" style="padding-top:8px">${gauge(lastMvrv, -1, 8, 200, lastMvrv.toFixed(2), "中性偏热区间")}</div>`,
   });
-  const soprPanel = panel({ title: "SOPR · 花费产出利润率", sub: ">1 整体盈利了结 · 近 30 日", className: "span-2 fade", body: lineChart(d.sopr, null, 190) });
+  const soprPanel = panel({ title: "SOPR · 花费产出利润率", sub: ">1 整体盈利了结 · 近 30 日", className: "span-2 fade", body: lineChart(d.sopr, null, 190, "var(--accent)", "var(--text-3)", { labels: d.days, format: (v) => String(v) }) });
   const cohortBody = d.cohorts.map((c) => `<div style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:7px"><span style="font-weight:600">${esc(c.label)}</span><span class="num" style="color:var(--text-2)">${c.supply}% · 盈利占比 ${(c.pnl * 100).toFixed(0)}%</span></div>
       <div class="bar-bg" style="height:10px"><div class="bar-fill" style="width:${c.supply}%;height:10px;background:${c.label.includes("长期") ? "var(--accent)" : "var(--text-3)"}"></div></div></div>`).join("");
   const cohortPanel = panel({ title: "持有者结构", sub: "LTH vs STH · 占流通供应", className: "fade", body: cohortBody + `<div style="margin-top:6px;font-size:12px;color:var(--text-3)">长期持有者持续吸筹，供应趋于成熟。</div>` });
-  const netflowPanel = panel({ title: "交易所净流量", sub: "负值 = 净流出 (看涨) · 千 BTC", className: "fade", body: flowBars(d.netflow, 180, "var(--neg)", "var(--pos)") });
+  const netflowPanel = panel({ title: "交易所净流量", sub: "负值 = 净流出 (看涨) · 千 BTC", className: "fade", body: flowBars(d.netflow, 180, "var(--neg)", "var(--pos)", { labels: d.days, format: (v) => v + "k BTC" }) });
   return sectionHeader({ eyebrow: "Participant 05 · On-chain", title: "链上指标", sub: "估值带、盈利状态、持有者结构与交易所资金流向。", live: true }) +
     `<div class="grid cols-4" style="margin-bottom:var(--gap)">${cards}</div>
      <div class="grid cols-3" style="margin-bottom:var(--gap)">${mvrvPanel}${soprPanel}</div>
@@ -806,7 +825,7 @@ function setActive(id) {
   // re-trigger fade animation
   view.classList.remove("fade"); void view.offsetWidth; view.classList.add("fade");
   if (sec.async) { sec.render(); }
-  else { view.innerHTML = sec.render(); }
+  else { view.innerHTML = sec.render(); initChartHovers(view); }
 }
 
 // ── live BTC chip ─────────────────────────────────────
@@ -853,6 +872,46 @@ function initTheme() {
     root.setAttribute("data-theme", next);
     localStorage.setItem("htx-theme", next);
     sync();
+  });
+}
+
+// ── chart hover tooltips ──────────────────────────────
+function ensureTip() {
+  let t = document.getElementById("chart-tip");
+  if (!t) { t = document.createElement("div"); t.id = "chart-tip"; t.className = "chart-tip"; document.body.appendChild(t); }
+  return t;
+}
+function initChartHovers(root) {
+  const tip = ensureTip();
+  // line / area / bar charts
+  root.querySelectorAll(".chart-hit[data-points]").forEach((el) => {
+    let pts; try { pts = JSON.parse(el.dataset.points); } catch (_) { return; }
+    if (!pts.length) return;
+    const guide = el.querySelector(".hit-line");
+    el.addEventListener("mousemove", (e) => {
+      const r = el.getBoundingClientRect();
+      const rel = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+      const p = pts[Math.round(rel * (pts.length - 1))];
+      if (!p) return;
+      tip.innerHTML = `<div class="tt-label">${esc(p.l)}</div><div class="tt-val">${esc(p.v)}</div>`;
+      tip.style.left = e.clientX + "px";
+      tip.style.top = r.top + "px";
+      tip.style.transform = "translate(-50%, -112%)";
+      tip.style.opacity = "1";
+      if (guide) { guide.style.left = (rel * 100) + "%"; guide.style.opacity = "0.6"; }
+    });
+    el.addEventListener("mouseleave", () => { tip.style.opacity = "0"; if (guide) guide.style.opacity = "0"; });
+  });
+  // donut segments
+  root.querySelectorAll("[data-seg]").forEach((seg) => {
+    seg.addEventListener("mousemove", (e) => {
+      tip.innerHTML = `<div class="tt-label">${esc(seg.dataset.label)}</div><div class="tt-val">${esc(seg.dataset.val)}</div>`;
+      tip.style.left = e.clientX + "px";
+      tip.style.top = e.clientY + "px";
+      tip.style.transform = "translate(-50%, -132%)";
+      tip.style.opacity = "1";
+    });
+    seg.addEventListener("mouseleave", () => { tip.style.opacity = "0"; });
   });
 }
 
