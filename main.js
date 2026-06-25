@@ -938,9 +938,40 @@ async function renderReport() {
     body: `<div class="history">${histItems || `<div class="empty-note" style="padding:20px 0">暂无历史记录</div>`}</div>`,
   });
 
+  // VERDICT METER — 5-tier scale driven by the post's verdict
+  const vLevelMap = { "极度看空": 1, "偏空": 2, "中性": 3, "偏多": 4, "极度看多": 5 };
+  const vLevel = vLevelMap[L.verdict] || 3;
+  const vIdx = vLevel - 1;
+  const vLabels = ["极度看空", "偏空", "中性", "偏多", "极度看多"];
+  const vBase = ["--neg", "--neg", "--text-3", "--pos", "--pos"];
+  const vActiveAlpha = [100, 72, 85, 72, 100];
+  const vTone = vLevel <= 2 ? "var(--neg)" : vLevel >= 4 ? "var(--pos)" : "var(--text-2)";
+  const vSegs = [0, 1, 2, 3, 4].map((i) => {
+    const a = i === vIdx ? vActiveAlpha[i] : 18;
+    return `<div style="flex:1;height:9px;border-radius:3px;background:color-mix(in oklab, var(${vBase[i]}) ${a}%, transparent)"></div>`;
+  }).join("");
+  const vLabs = vLabels.map((t, i) => `<span style="flex:1;${i === vIdx ? `color:${vTone};font-weight:600` : ""}">${t}</span>`).join("");
+  const vPointer = ((vIdx + 0.5) / 5) * 100;
+  const vStateLabel = (brief && brief.state_label) ? brief.state_label : "";
+  const verdictPanel = panel({
+    title: "市场判断", className: "fade",
+    right: `<span class="panel-sub">No.${issueNo}</span>`,
+    body: `
+      <div style="display:flex;align-items:baseline;gap:9px;margin-bottom:16px">
+        <span style="font-size:24px;font-weight:700;letter-spacing:-0.01em;color:${vTone}">${esc(L.verdict)}</span>
+        ${vStateLabel ? `<span style="font-size:12px;color:var(--text-3)">${esc(vStateLabel)}</span>` : ""}
+      </div>
+      <div style="position:relative;margin-bottom:9px">
+        <div style="position:absolute;top:-9px;left:${vPointer}%;transform:translateX(-50%);width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid ${vTone}"></div>
+        <div style="display:flex;gap:4px">${vSegs}</div>
+      </div>
+      <div style="display:flex;gap:4px;font-size:10.5px;color:var(--text-3);text-align:center">${vLabs}</div>`,
+  });
+  const sidebar = `<div style="display:flex;flex-direction:column;gap:var(--gap)">${verdictPanel}${historyPanel}</div>`;
+
   document.getElementById("report-body").innerHTML =
     hero +
-    `<div class="grid cols-3" style="margin-top:var(--gap)">${articlePanel}${historyPanel}</div>` +
+    `<div class="grid cols-3" style="margin-top:var(--gap)">${articlePanel}${sidebar}</div>` +
     source("编辑部综合 · SoSoValue / CoinGlass / Glassnode");
 }
 
