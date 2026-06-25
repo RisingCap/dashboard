@@ -919,7 +919,7 @@ async function renderReport() {
     ${restBullets}
     ${chartFigs}
   </article>`;
-  const articlePanel = `<div id="market-summary">` + panel({ title: "市场综述", sub: `${L.date} · No. ${issueNo}`, className: "span-2 fade", body: articleBody }) + `</div>`;
+  const articlePanel = `<div id="market-summary" class="span-2">` + panel({ title: "市场综述", sub: `${L.date} · No. ${issueNo}`, className: "fade", body: articleBody }) + `</div>`;
 
   // HISTORY
   const histItems = rest.map((h, i) => {
