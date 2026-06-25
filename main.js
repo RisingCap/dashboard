@@ -875,7 +875,11 @@ async function renderReport() {
   const bullets = L.bullets || [];
   const totalChars = bullets.join("").length;
   const readMins = Math.max(2, Math.ceil(totalChars / 380));
-  const standfirst = (brief && brief.brief) ? brief.brief : (bullets[0] || "");
+  // Hero dek = market_brief (distinct editorial summary). Without a brief, fall back to
+  // the first bullet and let the article start from the second — so nothing is shown twice.
+  const hasBrief = !!(brief && brief.brief);
+  const standfirst = hasBrief ? brief.brief : (bullets[0] || "");
+  const bodyBullets = hasBrief ? bullets : bullets.slice(1);
 
   document.getElementById("footer-updated").textContent = L.date;
   const pill = document.getElementById("report-pill");
@@ -900,18 +904,8 @@ async function renderReport() {
       </div>
     </div></div>`;
 
-  // TAKEAWAYS — first 4 bullets
-  const takeaways = bullets.slice(0, 4).map((b, i) => {
-    const tone = verdictMeta(L.verdict).tone;
-    return `<div class="panel takeaway fade fade-${i + 1}">
-      <div class="tk-top"><span class="t-tag">${esc(tagForBullet(b))}</span><span class="tk-dot" style="background:${TONE[tone]}"></span></div>
-      <p class="tk-text">${esc(b.length > 90 ? b.slice(0, 88) + "…" : b)}</p></div>`;
-  }).join("");
-  const takeawaysBlock = `<div class="section-eyebrow" style="margin:26px 0 14px">今日要点 · KEY TAKEAWAYS</div>
-    <div class="grid cols-4">${takeaways}</div>`;
-
   // ARTICLE — lead + agora figure + remaining bullets + the post's real charts
-  const restBullets = bullets.slice(1).map((b) => `<p>${esc(b)}</p>`).join("");
+  const restBullets = bodyBullets.slice(1).map((b) => `<p>${esc(b)}</p>`).join("");
   const charts = (L.charts || []).filter((c) => c.filename);
   const chartFigs = charts.length ? `<div class="article-charts">${charts.map((c) => {
     const src = CHARTS_BASE + c.filename;
@@ -919,7 +913,7 @@ async function renderReport() {
   }).join("")}</div>` : "";
 
   const articleBody = `<article class="article">
-    <p class="lead">${esc(bullets[0] || "")}</p>
+    ${bodyBullets[0] ? `<p class="lead">${esc(bodyBullets[0])}</p>` : ""}
     <div class="article-figure"><div class="fig-art">${agoraStill()}</div>
       <span class="fig-cap">图 · 五类市场参与者如集市中的摊主——ETF、机构、长期持有者、矿工与衍生品交易者各自定价、彼此博弈</span></div>
     ${restBullets}
@@ -945,7 +939,7 @@ async function renderReport() {
   });
 
   document.getElementById("report-body").innerHTML =
-    hero + takeawaysBlock +
+    hero +
     `<div class="grid cols-3" style="margin-top:var(--gap)">${articlePanel}${historyPanel}</div>` +
     source("编辑部综合 · SoSoValue / CoinGlass / Glassnode");
 }
