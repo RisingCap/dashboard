@@ -904,8 +904,8 @@ async function renderReport() {
       </div>
     </div></div>`;
 
-  // ARTICLE — lead + agora figure + remaining bullets + the post's real charts
-  const restBullets = bodyBullets.slice(1).map((b) => `<p>${esc(b)}</p>`).join("");
+  // ARTICLE — agora figure (top) → key points (bulleted) → the post's real charts
+  const pointsHTML = bodyBullets.map((b) => `<li>${esc(b)}</li>`).join("");
   const charts = (L.charts || []).filter((c) => c.filename);
   const chartFigs = charts.length ? `<div class="article-charts">${charts.map((c) => {
     const src = CHARTS_BASE + c.filename;
@@ -913,10 +913,9 @@ async function renderReport() {
   }).join("")}</div>` : "";
 
   const articleBody = `<article class="article">
-    ${bodyBullets[0] ? `<p class="lead">${esc(bodyBullets[0])}</p>` : ""}
-    <div class="article-figure"><div class="fig-art">${agoraStill()}</div>
+    <div class="article-figure" style="margin-top:0"><div class="fig-art">${agoraStill()}</div>
       <span class="fig-cap">图 · 五类市场参与者如集市中的摊主——ETF、机构、长期持有者、矿工与衍生品交易者各自定价、彼此博弈</span></div>
-    ${restBullets}
+    ${pointsHTML ? `<ul class="article-points">${pointsHTML}</ul>` : ""}
     ${chartFigs}
   </article>`;
   const articlePanel = `<div id="market-summary" class="span-2">` + panel({ title: "市场综述", sub: `${L.date} · No. ${issueNo}`, className: "fade", body: articleBody }) + `</div>`;

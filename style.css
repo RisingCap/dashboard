@@ -420,3 +420,11 @@ body {
 .chart-tip .tt-label { color: var(--text-3); font-size: 11px; margin-bottom: 2px; }
 .chart-tip .tt-val { font-weight: 700; font-family: var(--num-font); letter-spacing: -0.01em; }
 [data-seg] { cursor: pointer; }
+
+/* article key points (bulleted) */
+.article-points { margin: 0 0 18px; padding-left: 0; list-style: none; }
+.article-points li { position: relative; padding-left: 20px; margin-bottom: 14px;
+  font-size: 14.5px; line-height: 1.7; color: var(--text-2); text-wrap: pretty; }
+.article-points li::before { content: ""; position: absolute; left: 3px; top: 10px;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.article-points li:last-child { margin-bottom: 0; }
