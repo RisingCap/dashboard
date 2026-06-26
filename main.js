@@ -828,58 +828,164 @@ async function renderDeriv() {
 }
 
 // =====================================================
-//  SECTION: 矿工
+//  SECTION: 矿工 (live — mempool.space + computed)
 // =====================================================
-function renderMiner() {
-  const d = DASH.miner, sd = d.shutdown;
-  const pricePct = ((sd.price - sd.low) / (sd.high - sd.low)) * 100;
-  const cards = d.summary.map((s, i) => statCard(s, i, i === 3 ? d.hashrate.slice(-12) : i === 2 ? d.hashprice.slice(-12) : undefined)).join("");
-  const hashratePanel = panel({ title: "全网算力", sub: "EH/s · 7日均 · 近 30 日", className: "fade", body: areaChart(d.hashrate, 190, "var(--accent)", { labels: d.days, format: (v) => v + " EH/s" }) });
-  const hashpricePanel = panel({ title: "哈希价格", sub: "USD / PH/s · 矿工盈利能力", className: "fade", body: lineChart(d.hashprice, null, 190, "var(--neg)", "var(--text-3)", { labels: d.days, format: (v) => "$" + v }) });
-  const rigRows = d.rigs.map((r) => `<tr>
-    <td class="name">${esc(r.model)}</td>
-    <td class="r num" style="color:var(--text-2)">${r.eff}</td>
-    <td class="r"><span class="tag ${r.status === "盈利" ? "on" : r.status === "亏损" ? "off" : "mid"}">${esc(r.status)}</span></td>
-    <td class="bar-cell"><div style="display:flex;align-items:center;gap:10px"><div class="bar-bg" style="flex:1"><div class="bar-fill" style="width:${Math.abs(r.margin)}%;background:${r.margin >= 0 ? "var(--pos)" : "var(--neg)"}"></div></div><span class="num ${r.margin >= 0 ? "pos" : "neg"}" style="font-size:12px;width:40px">${r.margin > 0 ? "+" : ""}${r.margin}%</span></div></td></tr>`).join("");
-  const rigsPanel = panel({
-    title: "主流矿机盈利状态", sub: "按能效 (J/TH) · 当前电价假设 $0.06/kWh", className: "span-2 fade",
-    body: `<table class="tbl"><thead><tr><th>机型</th><th class="r">能效 J/TH</th><th class="r">状态</th><th style="width:30%">利润率</th></tr></thead><tbody>${rigRows}</tbody></table>`,
-  });
-  const shutdownPanel = panel({
-    title: "关机价区间", sub: "主流矿机停机阈值", className: "fade",
-    body: `<div class="kpi-inline" style="margin-bottom:18px"><span class="big">$${sd.price.toLocaleString()}</span><span style="font-size:12px;color:var(--pos)">当前价</span></div>
+const ASIC_RIGS = [
+  { model: "Antminer S21 Pro", eff: 15.0 },
+  { model: "Antminer S21", eff: 17.5 },
+  { model: "Whatsminer M60S", eff: 18.5 },
+  { model: "Antminer S19 XP", eff: 21.5 },
+  { model: "Antminer S19j Pro", eff: 29.5 },
+];
+const ELEC_USD_KWH = 0.06;
+
+async function loadMiner() {
+  const o = { hashEH: null, hashSeries: null, hashDays: null, curHash: null, diffChange: null, retargetDate: null, dailyRevBTC: null, btcPrice: null };
+  try {
+    const r = await fetch("https://mempool.space/api/v1/mining/hashrate/1m");
+    if (r.ok) { const d = await r.json(); o.curHash = d.currentHashrate; o.hashEH = d.currentHashrate / 1e18;
+      o.hashSeries = (d.hashrates || []).map((x) => x.avgHashrate / 1e18);
+      o.hashDays = (d.hashrates || []).map((x) => new Date(x.timestamp * 1000).toISOString().slice(5, 10)); }
+  } catch (_) {}
+  try { const r = await fetch("https://mempool.space/api/v1/difficulty-adjustment"); if (r.ok) { const d = await r.json(); o.diffChange = d.difficultyChange; o.retargetDate = d.estimatedRetargetDate; } } catch (_) {}
+  try { const r = await fetch("https://mempool.space/api/v1/mining/reward-stats/144"); if (r.ok) { const d = await r.json(); o.dailyRevBTC = parseFloat(d.totalReward) / 1e8; } } catch (_) {}
+  const btc = await fetchBTCPrice(); o.btcPrice = btc ? btc.price : null;
+  return o;
+}
+
+async function renderMiner() {
+  const head = sectionHeader({ eyebrow: "Participant 04 · Miners", title: "矿工数据", sub: "全网算力、哈希价格、矿机盈利状态与关机价区间。", live: true });
+  document.getElementById("view").innerHTML = head + `<div class="grid cols-4">${[0, 1, 2, 3].map(() => `<div class="skeleton"></div>`).join("")}</div>`;
+  const m = await loadMiner();
+  const d = DASH.miner;
+
+  const hashEH = m.hashEH != null ? m.hashEH : d.hashrate[d.hashrate.length - 1];
+  const hashSeries = m.hashSeries && m.hashSeries.length ? m.hashSeries : d.hashrate;
+  const hashDays = m.hashSeries && m.hashSeries.length ? m.hashDays : d.days;
+  const netHashPH = (m.curHash || hashEH * 1e18) / 1e15;
+  const dailyRevBTC = m.dailyRevBTC != null ? m.dailyRevBTC : 450;
+  const btcPrice = m.btcPrice != null ? m.btcPrice : 60000;
+  const dailyRevUSD = dailyRevBTC * btcPrice;
+  const hashprice = dailyRevUSD / netHashPH;
+  const diffChange = m.diffChange != null ? m.diffChange : d.difficulty;
+  const live = m.hashEH != null;
+
+  const hashpriceSeries = hashSeries.map((eh) => dailyRevUSD / (eh * 1000));
+  const hPrev = hashSeries[hashSeries.length - 2] || hashEH;
+  const hChg = hPrev ? +(((hashEH - hPrev) / hPrev) * 100).toFixed(1) : undefined;
+
+  const cards = [
+    statCard({ label: "全网算力", value: hashEH.toFixed(0) + " EH/s", chg: hChg, sub: live ? "mempool.space" : "示例" }, 0, hashSeries.slice(-12)),
+    statCard({ label: "哈希价格", value: "$" + hashprice.toFixed(1) + " /PH/s", sub: "日 · 含手续费" }, 1, hashpriceSeries.slice(-12)),
+    statCard({ label: "下次难度调整", value: (diffChange >= 0 ? "+" : "") + diffChange.toFixed(2) + "%", sub: m.retargetDate ? "约 " + new Date(m.retargetDate).toISOString().slice(5, 10) : "预估" }, 2),
+    statCard({ label: "矿工日收入", value: Math.round(dailyRevBTC).toLocaleString() + " BTC", sub: "≈ " + usdAbbr(dailyRevUSD) }, 3),
+  ].join("");
+
+  const hashratePanel = panel({ title: "全网算力", sub: "EH/s · 近 30 日" + (live ? "" : " · 示例"), className: "fade", body: areaChart(hashSeries, 190, "var(--accent)", { labels: hashDays, format: (v) => v.toFixed(0) + " EH/s" }) });
+  const hashpricePanel = panel({ title: "哈希价格", sub: "USD / PH/s · 测算（随算力变化）", className: "fade", body: lineChart(hashpriceSeries, null, 190, "var(--neg)", "var(--text-3)", { labels: hashDays, format: (v) => "$" + v.toFixed(1) }) });
+
+  const rigRows = ASIC_RIGS.map((r) => {
+    const costPerPH = 24 * r.eff * ELEC_USD_KWH;
+    const margin = hashprice > 0 ? ((hashprice - costPerPH) / hashprice) * 100 : -100;
+    const status = margin >= 15 ? "盈利" : margin >= 0 ? "边际" : "亏损";
+    return `<tr>
+      <td class="name">${esc(r.model)}</td>
+      <td class="r num" style="color:var(--text-2)">${r.eff}</td>
+      <td class="r"><span class="tag ${status === "盈利" ? "on" : status === "亏损" ? "off" : "mid"}">${status}</span></td>
+      <td class="bar-cell"><div style="display:flex;align-items:center;gap:10px"><div class="bar-bg" style="flex:1"><div class="bar-fill" style="width:${Math.min(Math.abs(margin), 100)}%;background:${margin >= 0 ? "var(--pos)" : "var(--neg)"}"></div></div><span class="num ${margin >= 0 ? "pos" : "neg"}" style="font-size:12px;width:46px">${margin > 0 ? "+" : ""}${margin.toFixed(0)}%</span></div></td></tr>`;
+  }).join("");
+  const rigsPanel = panel({ title: "主流矿机盈利状态", sub: `电价 $${ELEC_USD_KWH}/kWh · 哈希价格 $${hashprice.toFixed(1)}/PH/s`, className: "span-2 fade",
+    body: `<table class="tbl"><thead><tr><th>机型</th><th class="r">能效 J/TH</th><th class="r">状态</th><th style="width:30%">利润率</th></tr></thead><tbody>${rigRows}</tbody></table>` });
+
+  const shutdownOf = (eff) => (24 * eff * ELEC_USD_KWH) * netHashPH / dailyRevBTC;
+  const sdLow = shutdownOf(ASIC_RIGS[0].eff);
+  const sdHigh = shutdownOf(ASIC_RIGS[ASIC_RIGS.length - 1].eff);
+  const pricePct = Math.max(0, Math.min(100, ((btcPrice - sdLow) / (sdHigh - sdLow)) * 100));
+  const shutdownPanel = panel({ title: "关机价区间", sub: "停机阈值 · 电价 $0.06/kWh", className: "fade",
+    body: `<div class="kpi-inline" style="margin-bottom:18px"><span class="big">$${Math.round(btcPrice).toLocaleString()}</span><span style="font-size:12px;color:${btcPrice >= sdHigh ? "var(--pos)" : btcPrice <= sdLow ? "var(--neg)" : "var(--text-3)"}">现价</span></div>
       <div style="position:relative;height:10px;border-radius:5px;background:linear-gradient(90deg,var(--neg-soft),var(--surface-3) 55%,var(--pos-soft));margin-bottom:8px">
         <div style="position:absolute;left:calc(${pricePct}% - 7px);top:-4px;width:14px;height:18px;border-radius:4px;background:var(--accent);border:2px solid var(--surface)"></div></div>
-      <div class="num" style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-3)"><span>$${sd.low.toLocaleString()}</span><span>$${sd.high.toLocaleString()}</span></div>
-      <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-size:12.5px"><span style="color:var(--text-2)">下次难度调整</span><span class="num pos" style="font-weight:600">+${d.difficulty}%</span></div>`,
-  });
-  return sectionHeader({ eyebrow: "Participant 04 · Miners", title: "矿工数据", sub: "矿工储备与净转出、哈希价格、全网算力及关机价区间。", live: true }) +
+      <div class="num" style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-3)"><span>$${Math.round(sdLow).toLocaleString()} 高效</span><span>$${Math.round(sdHigh).toLocaleString()} 低效</span></div>
+      <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-size:12.5px"><span style="color:var(--text-2)">下次难度调整</span><span class="num ${diffChange >= 0 ? "pos" : "neg"}" style="font-weight:600">${diffChange >= 0 ? "+" : ""}${diffChange.toFixed(2)}%</span></div>` });
+
+  document.getElementById("view").innerHTML = head +
     `<div class="grid cols-4" style="margin-bottom:var(--gap)">${cards}</div>
      <div class="grid cols-2" style="margin-bottom:var(--gap)">${hashratePanel}${hashpricePanel}</div>
-     <div class="grid cols-3">${rigsPanel}${shutdownPanel}</div>` + source("Glassnode · Hashrate Index · Luxor");
+     <div class="grid cols-3">${rigsPanel}${shutdownPanel}</div>` +
+    `<div class="source">数据来源：全网算力 / 难度 / 区块奖励 · mempool.space · 哈希价格与盈利为实时测算（电价 $${ELEC_USD_KWH}/kWh）</div>`;
+  initChartHovers(document.getElementById("view"));
 }
 
 // =====================================================
-//  SECTION: 链上指标
+//  SECTION: 链上指标 (live — bitcoin-data.com / BGeometrics)
 // =====================================================
-function renderOnchain() {
+// Fetch a BGeometrics metric's full history; auto-detect the value field
+// (each row is { d, unixTs, <metric> }).
+async function bdSeries(metric) {
+  try {
+    const r = await fetch("https://bitcoin-data.com/v1/" + metric);
+    if (!r.ok) return null;
+    const arr = await r.json();
+    if (!Array.isArray(arr) || !arr.length) return null;
+    const key = Object.keys(arr[0]).find((k) => k !== "d" && k !== "unixTs" && k !== "theDate");
+    if (!key) return null;
+    return arr.map((x) => ({ date: (x.d || "").slice(5), v: parseFloat(x[key]) })).filter((x) => isFinite(x.v));
+  } catch (_) { return null; }
+}
+
+async function loadOnchain() {
+  const [mvrv, sopr, nupl, rp] = await Promise.all([
+    bdSeries("mvrv-zscore"), bdSeries("sopr"), bdSeries("nupl"), bdSeries("realized-price"),
+  ]);
+  const btc = await fetchBTCPrice();
+  return { mvrv, sopr, nupl, rp, btcPrice: btc ? btc.price : null };
+}
+
+async function renderOnchain() {
+  const head = sectionHeader({ eyebrow: "Participant 05 · On-chain", title: "链上指标", sub: "估值带、盈利了结、净未实现盈亏与已实现价格。", live: true });
+  document.getElementById("view").innerHTML = head + `<div class="grid cols-4">${[0, 1, 2, 3].map(() => `<div class="skeleton"></div>`).join("")}</div>`;
+  const o = await loadOnchain();
   const d = DASH.onchain;
-  const cards = d.summary.map((s, i) => statCard(s, i, i === 0 ? d.mvrv.slice(-12) : i === 1 ? d.sopr.slice(-12) : undefined)).join("");
-  const lastMvrv = d.mvrv[d.mvrv.length - 1];
-  const mvrvPanel = panel({
-    title: "MVRV-Z Score", sub: "估值带 · >7 过热 / <0 低估", className: "fade",
-    body: `<div class="viz-center" style="padding-top:8px">${gauge(lastMvrv, -1, 8, 200, lastMvrv.toFixed(2), "中性偏热区间")}</div>`,
-  });
-  const soprPanel = panel({ title: "SOPR · 花费产出利润率", sub: ">1 整体盈利了结 · 近 30 日", className: "span-2 fade", body: lineChart(d.sopr, null, 190, "var(--accent)", "var(--text-3)", { labels: d.days, format: (v) => String(v) }) });
-  const cohortBody = d.cohorts.map((c) => `<div style="margin-bottom:16px">
-      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:7px"><span style="font-weight:600">${esc(c.label)}</span><span class="num" style="color:var(--text-2)">${c.supply}% · 盈利占比 ${(c.pnl * 100).toFixed(0)}%</span></div>
-      <div class="bar-bg" style="height:10px"><div class="bar-fill" style="width:${c.supply}%;height:10px;background:${c.label.includes("长期") ? "var(--accent)" : "var(--text-3)"}"></div></div></div>`).join("");
-  const cohortPanel = panel({ title: "持有者结构", sub: "LTH vs STH · 占流通供应", className: "fade", body: cohortBody + `<div style="margin-top:6px;font-size:12px;color:var(--text-3)">长期持有者持续吸筹，供应趋于成熟。</div>` });
-  const netflowPanel = panel({ title: "交易所净流量", sub: "负值 = 净流出 (看涨) · 千 BTC", className: "fade", body: flowBars(d.netflow, 180, "var(--neg)", "var(--pos)", { labels: d.days, format: (v) => v + "k BTC" }) });
-  return sectionHeader({ eyebrow: "Participant 05 · On-chain", title: "链上指标", sub: "估值带、盈利状态、持有者结构与交易所资金流向。", live: true }) +
+
+  const mvrvSeries = o.mvrv && o.mvrv.length ? o.mvrv : d.mvrv.map((v, i) => ({ date: d.days[i], v }));
+  const soprSeries = o.sopr && o.sopr.length ? o.sopr : d.sopr.map((v, i) => ({ date: d.days[i], v }));
+  const lastMvrv = mvrvSeries[mvrvSeries.length - 1].v;
+  const lastSopr = soprSeries[soprSeries.length - 1].v;
+  const nupl = o.nupl && o.nupl.length ? o.nupl[o.nupl.length - 1].v : 0.5;
+  const rp = o.rp && o.rp.length ? o.rp[o.rp.length - 1].v : null;
+  const btcPrice = o.btcPrice;
+  const mvrvLive = !!(o.mvrv && o.mvrv.length);
+
+  const mvrvZone = lastMvrv >= 7 ? "过热区间" : lastMvrv >= 4 ? "偏热区间" : lastMvrv >= 0 ? "中性区间" : "低估区间";
+  const nuplZone = nupl >= 0.75 ? "极度贪婪" : nupl >= 0.5 ? "信念 / 贪婪" : nupl >= 0.25 ? "乐观 / 焦虑" : nupl >= 0 ? "希望 / 恐惧" : "投降";
+  const rpPrem = (rp && btcPrice) ? (btcPrice / rp - 1) * 100 : null;
+
+  const cards = [
+    statCard({ label: "MVRV-Z Score", value: lastMvrv.toFixed(2), sub: mvrvLive ? mvrvZone : "示例" }, 0, mvrvSeries.slice(-12).map((x) => x.v)),
+    statCard({ label: "SOPR", value: lastSopr.toFixed(3), sub: lastSopr >= 1 ? "整体盈利了结" : "亏损了结" }, 1, soprSeries.slice(-12).map((x) => x.v)),
+    statCard({ label: "NUPL", value: nupl.toFixed(3), sub: nuplZone }, 2),
+    statCard({ label: "已实现价格", value: rp != null ? "$" + Math.round(rp).toLocaleString() : "—", sub: rpPrem != null ? (rpPrem >= 0 ? "溢价 +" : "折价 ") + rpPrem.toFixed(0) + "%" : "链上成本" }, 3),
+  ].join("");
+
+  const mvrvPanel = panel({ title: "MVRV-Z Score", sub: "估值带 · >7 过热 / <0 低估", className: "fade",
+    body: `<div class="viz-center" style="padding-top:8px">${gauge(lastMvrv, -1, 8, 200, lastMvrv.toFixed(2), mvrvZone)}</div>` });
+  const soprPanel = panel({ title: "SOPR · 花费产出利润率", sub: ">1 整体盈利了结 · 近 30 日", className: "span-2 fade",
+    body: lineChart(soprSeries.slice(-30).map((x) => x.v), null, 190, "var(--accent)", "var(--text-3)", { labels: soprSeries.slice(-30).map((x) => x.date), format: (v) => v.toFixed(3) }) });
+
+  const nuplPanel = panel({ title: "NUPL · 净未实现盈亏", sub: "市场情绪带 · <0 投降 / >0.75 极度贪婪", className: "fade",
+    body: `<div class="viz-center" style="padding-top:8px">${gauge(nupl, -0.5, 1, 200, nupl.toFixed(2), nuplZone)}</div>` });
+  const rpPanel = panel({ title: "市价 vs 已实现价格", sub: "已实现价格 = 链上平均成本", className: "fade",
+    body: `<div style="display:flex;flex-direction:column;gap:14px;padding-top:6px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="color:var(--text-2);font-size:13px">当前市价</span><span class="num" style="font-size:22px;font-weight:700">${btcPrice != null ? "$" + Math.round(btcPrice).toLocaleString() : "—"}</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="color:var(--text-2);font-size:13px">已实现价格</span><span class="num" style="font-size:22px;font-weight:700;color:var(--text-2)">${rp != null ? "$" + Math.round(rp).toLocaleString() : "—"}</span></div>
+      ${rpPrem != null ? `<div style="margin-top:4px;padding-top:12px;border-top:1px solid var(--border);display:flex;justify-content:space-between"><span style="color:var(--text-2);font-size:13px">市价 / 成本</span><span class="num ${rpPrem >= 0 ? "pos" : "neg"}" style="font-weight:700">${rpPrem >= 0 ? "+" : ""}${rpPrem.toFixed(1)}%</span></div>` : ""}</div>` });
+
+  document.getElementById("view").innerHTML = head +
     `<div class="grid cols-4" style="margin-bottom:var(--gap)">${cards}</div>
      <div class="grid cols-3" style="margin-bottom:var(--gap)">${mvrvPanel}${soprPanel}</div>
-     <div class="grid cols-2">${cohortPanel}${netflowPanel}</div>` + source("Glassnode · CheckOnChain");
+     <div class="grid cols-2">${nuplPanel}${rpPanel}</div>` +
+    `<div class="source">数据来源：MVRV-Z / SOPR / NUPL / 已实现价格 · bitcoin-data.com (BGeometrics) · 市价 Binance</div>`;
+  initChartHovers(document.getElementById("view"));
 }
 
 // =====================================================
@@ -1047,8 +1153,8 @@ const SECTIONS = [
   { id: "etf", label: "ETF 资金流", render: renderETF, async: true },
   { id: "inst", label: "Strategy (MSTR)", render: renderInst, async: true },
   { id: "deriv", label: "衍生品市场", render: renderDeriv, async: true },
-  { id: "miner", label: "矿工", render: renderMiner },
-  { id: "onchain", label: "链上指标", render: renderOnchain },
+  { id: "miner", label: "矿工", render: renderMiner, async: true },
+  { id: "onchain", label: "链上指标", render: renderOnchain, async: true },
 ];
 
 function segMarkup(options, active) {
