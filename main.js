@@ -628,17 +628,23 @@ async function renderInst() {
   const priceLive = !!mq;
 
   // ---- fundamentals + computed ----
-  const holdings = fund.btc.holdings, costAvg = fund.btc.cost_basis_avg, shares = fund.shares_diluted;
+  const holdings = fund.btc.holdings, costAvg = fund.btc.cost_basis_avg;
+  const sharesBasic = fund.shares_basic || fund.shares_diluted;
+  const cap = fund.capital || {};
+  const reserve = fund.reserves.usd_reserve_usd;
   const btcMV = btcPrice ? holdings * btcPrice : null;
   const totalCost = holdings * costAvg;
   const unrealPnl = btcMV != null ? btcMV - totalCost : null;
   const unrealPct = unrealPnl != null ? (unrealPnl / totalCost) * 100 : null;
-  const mktCap = mstrPrice != null ? mstrPrice * shares : null;
-  const mnav = (mktCap != null && btcMV) ? mktCap / btcMV : null;
+  // mNAV per strategy.com = Enterprise Value / BTC value
+  //   EV = market cap + debt + preferred − cash reserve
+  const mktCap = mstrPrice != null ? mstrPrice * sharesBasic : null;
+  const ev = mktCap != null ? mktCap + (cap.debt_usd || 0) + (cap.pref_value_usd || 0) - reserve : null;
+  const mnav = (ev != null && btcMV) ? ev / btcMV : null;
 
   // ---- KPI cards ----
   const row1 = [
-    { label: "mNAV", value: mnav != null ? mnav.toFixed(2) + "×" : "—", sub: "市值 / BTC 净值" },
+    { label: "mNAV", value: mnav != null ? mnav.toFixed(2) + "×" : "—", sub: "企业价值 / BTC 净值" },
     { label: "BTC Yield · YTD", value: "+" + fund.btc_yield_ytd_pct + "%", sub: "每股 BTC 增长" },
     { label: "MSTR 价格", value: mstrPrice != null ? money2(mstrPrice) : "—", chg: mstrChg != null ? +mstrChg.toFixed(2) : undefined, sub: "NASDAQ" },
     { label: "STRC 价格", value: strcPrice != null ? money2(strcPrice) : "—", chg: strcChg != null ? +strcChg.toFixed(2) : undefined, sub: "NASDAQ 优先股" },
@@ -700,15 +706,13 @@ async function renderInst() {
       kRow("BTC 累计持仓", intc(k.btc_cumulative) + " BTC").replace("border-bottom:1px solid var(--border)", "border:none"),
   });
 
-  // ---- dividend runways ----
-  const reserve = fund.reserves.usd_reserve_usd;
-  const interest = fund.reserves.convert_interest_annual_usd || 0;
+  // ---- dividend runways (authoritative aggregates, per strategy.com) ----
   const strc = fund.preferreds.find((p) => p.ticker === "STRC");
-  const strcAnnual = strc ? strc.annual_div_usd : 0;
-  const divTotal = fund.preferreds.reduce((s, p) => s + (p.annual_div_usd || 0), 0);
-  const globalAnnual = divTotal + interest;
+  const strcAnnual = fund.reserves.strc_annual_div_usd || (strc ? strc.annual_div_usd : 0);
+  const globalAnnual = fund.reserves.annual_dividends_total_usd || fund.preferreds.reduce((s, p) => s + (p.annual_div_usd || 0), 0);
   const strcRunwayY = reserve / strcAnnual;
   const globalRunwayY = reserve / globalAnnual;
+  const btcCovYears = btcMV ? btcMV / globalAnnual : null;
   const rwRow = (label, val, strong) => `<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);font-size:13px"><span style="color:var(--text-2)">${label}</span><span class="num" style="font-weight:${strong ? 700 : 600}">${val}</span></div>`;
 
   const strcRunwayPanel = panel({
@@ -720,12 +724,11 @@ async function renderInst() {
       <div style="margin-top:6px;font-size:11.5px;color:var(--text-3)">储备 / 年度需求 = ${(strcRunwayY * 100).toFixed(0)}% 年覆盖</div>`,
   });
   const globalRunwayPanel = panel({
-    title: "全局股息 + 利息跑道", sub: "全部优先股 + 可转债利息", className: "fade",
-    body: `<div class="kpi-inline" style="margin-bottom:16px"><span class="big">${fmtRunway(globalRunwayY)}</span><span style="font-size:12px;color:${globalRunwayY < 0.5 ? "var(--neg)" : "var(--text-3)"}">可覆盖</span></div>
-      ${rwRow("年度义务总额", usdAbbr(globalAnnual), true)}
-      ${rwRow("— 优先股股息", usdAbbr(divTotal))}
-      ${rwRow("— 可转债利息", usdAbbr(interest))}
-      ${rwRow("USD 现金储备", usdAbbr(reserve))}`,
+    title: "全局股息覆盖", sub: "全部优先股年度股息", className: "fade",
+    body: `<div class="kpi-inline" style="margin-bottom:16px"><span class="big">${fmtRunway(globalRunwayY)}</span><span style="font-size:12px;color:${globalRunwayY < 0.5 ? "var(--neg)" : "var(--text-3)"}">USD 储备可覆盖</span></div>
+      ${rwRow("优先股年度股息总额", usdAbbr(globalAnnual), true)}
+      ${rwRow("USD 现金储备", usdAbbr(reserve))}
+      ${rwRow("BTC 储备覆盖年限", btcCovYears != null ? btcCovYears.toFixed(1) + " 年" : "—")}`,
   });
 
   document.getElementById("view").innerHTML = head +
