@@ -744,25 +744,87 @@ async function renderInst() {
 // =====================================================
 //  SECTION: 衍生品市场
 // =====================================================
-function renderDeriv() {
-  const d = DASH.deriv;
-  const cards = d.summary.map((s, i) => statCard(s, i, i === 1 ? d.funding.slice(-12) : i === 0 ? d.oi.slice(-12) : undefined)).join("");
-  const fundingPanel = panel({ title: "资金费率", sub: "8h · OI 加权 · 近 30 日 (%)", className: "fade", body: lineChart(d.funding, null, 190, "var(--accent)", "var(--text-3)", { labels: d.days, format: (v) => v + "%" }) });
-  const oiPanel = panel({ title: "未平仓合约 OI", sub: "单位：十亿美元 · 近 30 日", className: "fade", body: areaChart(d.oi, 190, "var(--accent)", { labels: d.days, format: (v) => "$" + v + "B" }) });
-  const liqPanel = panel({
-    title: "24h 爆仓分布", sub: "按交易所 · 多 / 空", className: "span-2 fade",
-    right: `<div class="legend">${legendKey("var(--neg)", "多头爆仓")}${legendKey("var(--pos)", "空头爆仓")}</div>`,
-    body: stackedRows(d.liq),
-  });
+// Live derivatives data — all free, direct browser calls (Binance Futures + Deribit).
+async function loadDeriv() {
+  const o = { oi: null, oiDays: null, funding: null, fundingDays: null, ls: null, iv: null, cvd: null, cvdDays: null };
+  // Open interest (30d, USD notional — Binance BTCUSDT perp)
+  try {
+    const r = await fetch("https://fapi.binance.com/futures/data/openInterestHist?symbol=BTCUSDT&period=1d&limit=30");
+    if (r.ok) { const d = await r.json(); o.oi = d.map((x) => parseFloat(x.sumOpenInterestValue) / 1e9); o.oiDays = d.map((x) => new Date(x.timestamp).toISOString().slice(5, 10)); }
+  } catch (_) {}
+  // Funding rate (8h, ~30d) — percent
+  try {
+    const r = await fetch("https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&limit=90");
+    if (r.ok) { const d = await r.json(); o.funding = d.map((x) => parseFloat(x.fundingRate) * 100); o.fundingDays = d.map((x) => new Date(x.fundingTime).toISOString().slice(5, 10)); }
+  } catch (_) {}
+  // Top-trader long/short position ratio (current)
+  try {
+    const r = await fetch("https://fapi.binance.com/futures/data/topLongShortPositionRatio?symbol=BTCUSDT&period=5m&limit=1");
+    if (r.ok) { const d = await r.json(); if (d.length) o.ls = parseFloat(d[0].longShortRatio); }
+  } catch (_) {}
+  // Deribit DVOL (implied volatility index)
+  try {
+    const end = Date.now(), start = end - 2 * 864e5;
+    const r = await fetch(`https://www.deribit.com/api/v2/public/get_volatility_index_data?currency=BTC&start_timestamp=${start}&end_timestamp=${end}&resolution=3600`);
+    if (r.ok) { const j = await r.json(); const dt = j.result && j.result.data; if (dt && dt.length) o.iv = dt[dt.length - 1][4]; }
+  } catch (_) {}
+  // Spot CVD — cumulative taker buy−sell from Binance spot klines (4h × 180 ≈ 30d)
+  try {
+    const r = await fetch("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=4h&limit=180");
+    if (r.ok) {
+      const kl = await r.json(); let cum = 0; const cvd = [], days = [];
+      kl.forEach((k) => { cum += (2 * parseFloat(k[9]) - parseFloat(k[5])); cvd.push(cum); days.push(new Date(k[0]).toISOString().slice(5, 10)); });
+      o.cvd = cvd; o.cvdDays = days;
+    }
+  } catch (_) {}
+  return o;
+}
+
+async function renderDeriv() {
+  const head = sectionHeader({ eyebrow: "Participant 03 · Derivatives", title: "衍生品市场", sub: "永续合约资金费率、未平仓合约、爆仓分布、现货 CVD 与期权偏斜度。", live: true });
+  document.getElementById("view").innerHTML = head +
+    `<div class="grid cols-4" style="margin-bottom:var(--gap)">${[0, 1, 2, 3].map(() => `<div class="skeleton"></div>`).join("")}</div>
+     <div class="grid cols-2">${[0, 1].map(() => `<div class="skeleton" style="height:220px"></div>`).join("")}</div>`;
+
+  const live = await loadDeriv();
+  const d = DASH.deriv; // mock fallback (liquidations + skew stay manual)
+
+  const oi = live.oi || d.oi, oiDays = live.oiDays || d.days;
+  const funding = live.funding || d.funding, fundingDays = live.fundingDays || d.days;
+  const oiCur = oi[oi.length - 1], oiPrev = oi[oi.length - 2] || oiCur;
+  const oiChg = oiPrev ? +(((oiCur - oiPrev) / oiPrev) * 100).toFixed(1) : undefined;
+  const fCur = funding[funding.length - 1];
+  const ls = live.ls != null ? live.ls : d.longShort;
+  const iv = live.iv != null ? live.iv : d.iv;
+  const oiLive = !!live.oi, cvdLive = !!live.cvd;
+
+  // KPI cards — all live
+  const cardOI = statCard({ label: "未平仓 OI", value: "$" + oiCur.toFixed(1) + "B", chg: oiChg, sub: oiLive ? "Binance 永续" : "示例" }, 0, oi.slice(-12));
+  const cardFund = statCard({ label: "加权资金费率", value: (fCur >= 0 ? "+" : "") + fCur.toFixed(4) + "%", sub: live.funding ? "8h · Binance" : "示例" }, 1, funding.slice(-12));
+  const cardLS = statCard({ label: "多空持仓比", value: ls.toFixed(2), sub: live.ls != null ? "Binance Top Trader" : "示例" }, 2);
+  const cardIV = statCard({ label: "隐含波动率 IV", value: (typeof iv === "number" ? iv.toFixed(1) : iv) + "%", sub: live.iv != null ? "Deribit DVOL" : "示例" }, 3);
+  const cards = cardOI + cardFund + cardLS + cardIV;
+
+  const fundingPanel = panel({ title: "资金费率", sub: "8h · 近 30 日 (%)" + (live.funding ? "" : " · 示例"), className: "fade", body: lineChart(funding, null, 190, "var(--accent)", "var(--text-3)", { labels: fundingDays, format: (v) => v.toFixed(4) + "%" }) });
+  const oiPanel = panel({ title: "未平仓合约 OI", sub: "单位：十亿美元 · 近 30 日" + (oiLive ? "" : " · 示例"), className: "fade", body: areaChart(oi, 190, "var(--accent)", { labels: oiDays, format: (v) => "$" + v.toFixed(2) + "B" }) });
+
+  // Spot CVD (new)
+  const cvdBody = cvdLive
+    ? lineChart(live.cvd, null, 200, "var(--accent)", "var(--text-3)", { labels: live.cvdDays, format: (v) => (v >= 0 ? "+" : "") + Math.round(v).toLocaleString() + " BTC" })
+    : `<div class="empty-note">现货 CVD 暂不可用</div>`;
+  const cvdPanel = panel({ title: "现货 CVD", sub: "累计 taker 买卖差 · Binance 现货 · 近 30 日", className: "span-2 fade", body: cvdBody });
+
   const gaugePanel = panel({
-    title: "多空持仓比", sub: "全网 · Top Trader", className: "fade",
-    body: `<div class="viz-center" style="padding-top:8px">${gauge(d.longShort, 0.5, 2, 200, d.longShort.toFixed(2), "LONG / SHORT")}</div>
-      <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:12.5px"><span style="color:var(--text-2)">隐含波动率 IV</span><span class="num" style="font-weight:600">${d.iv}%</span></div>`,
+    title: "多空持仓比", sub: "Binance · Top Trader", className: "fade",
+    body: `<div class="viz-center" style="padding-top:8px">${gauge(ls, 0.5, 2, 200, ls.toFixed(2), "LONG / SHORT")}</div>`,
   });
-  return sectionHeader({ eyebrow: "Participant 03 · Derivatives", title: "衍生品市场", sub: "永续合约资金费率、未平仓合约、爆仓分布与期权偏斜度。", live: true }) +
+
+  document.getElementById("view").innerHTML = head +
     `<div class="grid cols-4" style="margin-bottom:var(--gap)">${cards}</div>
      <div class="grid cols-2" style="margin-bottom:var(--gap)">${fundingPanel}${oiPanel}</div>
-     <div class="grid cols-3">${liqPanel}${gaugePanel}</div>` + source("CoinGlass · Hyperliquid · Velo · Deribit");
+     <div class="grid cols-3">${cvdPanel}${gaugePanel}</div>` +
+    `<div class="source">数据来源：OI / 资金费率 / 多空比 · Binance · IV · Deribit DVOL · 现货 CVD · Binance 现货</div>`;
+  initChartHovers(document.getElementById("view"));
 }
 
 // =====================================================
@@ -984,7 +1046,7 @@ const SECTIONS = [
   { id: "report", label: "今日报告", render: renderReport, async: true },
   { id: "etf", label: "ETF 资金流", render: renderETF, async: true },
   { id: "inst", label: "Strategy (MSTR)", render: renderInst, async: true },
-  { id: "deriv", label: "衍生品市场", render: renderDeriv },
+  { id: "deriv", label: "衍生品市场", render: renderDeriv, async: true },
   { id: "miner", label: "矿工", render: renderMiner },
   { id: "onchain", label: "链上指标", render: renderOnchain },
 ];
