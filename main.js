@@ -263,11 +263,11 @@ function gauge(value, min = 0, max = 100, size = 200, label = "", sub = "") {
   const a0 = Math.PI, a1 = 0;
   const frac = Math.max(0, Math.min(1, (value - min) / (max - min)));
   const ang = a0 + (a1 - a0) * frac;
-  const pt = (a) => [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+  const pt = (a) => [cx + r * Math.cos(a), cy - r * Math.sin(a)]; // top semicircle (y-up)
   const [sx, sy] = pt(a0), [ex, ey] = pt(a1), [px, py] = pt(ang);
   return `<svg viewBox="0 0 ${size} ${size * 0.62}" width="100%" height="${size * 0.62}" style="display:block">
-    <path d="M ${sx},${sy} A ${r},${r} 0 1 1 ${ex},${ey}" fill="none" stroke="var(--surface-3)" stroke-width="12" stroke-linecap="round"/>
-    <path d="M ${sx},${sy} A ${r},${r} 0 ${frac > 0.5 ? 1 : 0} 1 ${px},${py}" fill="none" stroke="var(--accent)" stroke-width="12" stroke-linecap="round"/>
+    <path d="M ${sx},${sy} A ${r},${r} 0 0 1 ${ex},${ey}" fill="none" stroke="var(--surface-3)" stroke-width="12" stroke-linecap="round"/>
+    <path d="M ${sx},${sy} A ${r},${r} 0 0 1 ${px},${py}" fill="none" stroke="var(--accent)" stroke-width="12" stroke-linecap="round"/>
     <circle cx="${px}" cy="${py}" r="6" fill="var(--accent)"/>
     <text x="${cx}" y="${cy - 6}" text-anchor="middle" font-family="var(--num-font)" font-weight="700" font-size="30" fill="var(--text)" style="letter-spacing:-0.02em">${esc(label)}</text>
     <text x="${cx}" y="${cy + 14}" text-anchor="middle" font-size="11.5" fill="var(--text-3)">${esc(sub)}</text></svg>`;
