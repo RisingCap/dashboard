@@ -138,6 +138,64 @@
       <div class="admin-hint">复制后<strong>覆盖替换</strong> <code>data/market_brief.json</code> 的全部内容。</div>
     </div>
 
+    <!-- ⑥ Strategy 财库更新 -->
+    <div class="admin-card">
+      <h2><span class="badge-num">6</span> Strategy 财库更新 <span class="file-pill">strategy.json</span></h2>
+      <p class="admin-hint" style="margin:0 0 16px;" id="st-load-status">
+        每次新 8-K 后更新一次。数据来源：strategy.com 仪表盘 / saylortracker。带 <strong>$M</strong> 的字段以<strong>百万美元</strong>为单位（如 1,400 = $1.4B）。
+      </p>
+
+      <div class="form-row">
+        <div class="form-group"><label for="st-updated">数据日期</label><input type="date" id="st-updated"/></div>
+        <div class="form-group"><label for="st-yield">BTC Yield · YTD (%)</label><input type="number" id="st-yield" step="0.1" placeholder="例：11.8"/></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label for="st-holdings">BTC 持仓（枚）</label><input type="number" id="st-holdings" placeholder="例：847363"/></div>
+        <div class="form-group"><label for="st-cost">持仓成本均价（美元）</label><input type="number" id="st-cost" placeholder="例：75646"/></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label for="st-shares-basic">普通股 · 基本（股）</label><input type="number" id="st-shares-basic" placeholder="例：358900000"/></div>
+        <div class="form-group"><label for="st-shares-diluted">普通股 · 稀释（股）</label><input type="number" id="st-shares-diluted" placeholder="例：386052000"/></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label for="st-debt">债务 Debt ($M)</label><input type="number" id="st-debt" step="0.1" placeholder="例：6754"/></div>
+        <div class="form-group"><label for="st-pref-value">优先股价值 Pref ($M)</label><input type="number" id="st-pref-value" step="0.1" placeholder="例：15467"/></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label for="st-reserve">USD 现金储备 ($M)</label><input type="number" id="st-reserve" step="0.1" placeholder="例：1400"/></div>
+        <div class="form-group"><label for="st-div-total">优先股年度股息总额 ($M)</label><input type="number" id="st-div-total" step="0.1" placeholder="例：1711"/></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label for="st-strc-div">STRC 年度股息 ($M)</label><input type="number" id="st-strc-div" step="0.1" placeholder="例：1206"/></div>
+        <div class="form-group"></div>
+      </div>
+
+      <p class="admin-hint" style="margin:16px 0 8px;"><strong>优先股系列</strong>（展示用 · 年度股息自动 = 股数 × $100 × 票息%）</p>
+      <table class="tbl" style="margin-bottom:16px;">
+        <thead><tr><th>系列</th><th>名称</th><th class="r">流通股数</th><th class="r">票息 %</th><th class="r">年度股息</th></tr></thead>
+        <tbody id="st-pref-rows"></tbody>
+      </table>
+
+      <p class="admin-hint" style="margin:16px 0 8px;"><strong>最新 8-K</strong></p>
+      <div class="form-row">
+        <div class="form-group"><label for="st-8k-date">8-K 日期</label><input type="date" id="st-8k-date"/></div>
+        <div class="form-group"><label for="st-8k-strc">STRC 本周增发 ($M)</label><input type="number" id="st-8k-strc" step="0.1" placeholder="例：181，无则 0"/></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label for="st-8k-btcweek">BTC 本周买入（枚）</label><input type="number" id="st-8k-btcweek" placeholder="例：520"/></div>
+        <div class="form-group"><label for="st-8k-btcusd">BTC 本周买入金额 ($M)</label><input type="number" id="st-8k-btcusd" step="0.1" placeholder="例：34.9"/></div>
+      </div>
+
+      <div class="admin-actions" style="margin:16px 0 14px;">
+        <button type="button" class="btn-primary" onclick="generateStrategyJson()">生成 strategy.json</button>
+      </div>
+      <div class="json-output-wrap">
+        <textarea id="st-json-output" class="json-output" readonly placeholder='{ "updated": "...", "btc": { ... }, ... }'></textarea>
+        <button type="button" class="json-copy-btn" id="st-copy-btn" onclick="copyStrategyJson()">复制</button>
+      </div>
+      <div class="admin-hint">复制后<strong>覆盖替换</strong> <code>data/strategy.json</code> 的全部内容。BTC 累计持仓自动取上方「BTC 持仓」。</div>
+    </div>
+
   </div>
 
   <script src="admin.js"></script>

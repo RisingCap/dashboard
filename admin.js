@@ -269,4 +269,141 @@ document.addEventListener("DOMContentLoaded", () => {
   // Seed with one empty bullet and one empty chart row
   addBulletRow();
   addChartRow();
+
+  // Strategy 财库 form (Section 6)
+  initStrategyForm();
 });
+
+// ══════════════════════════════════════════════════════
+//  Strategy 财库 (strategy.json) — Section 6
+//  Prefills from the current data/strategy.json so a weekly
+//  update is edit-what-changed, not retype-everything.
+// ══════════════════════════════════════════════════════
+
+const ST_SERIES = ["STRK", "STRF", "STRD", "STRC", "STRE"];
+
+const stUSD = (v) => {
+  const n = Math.abs(v);
+  if (n >= 1e9) return "$" + (v / 1e9).toFixed(2) + "B";
+  if (n >= 1e6) return "$" + (v / 1e6).toFixed(1) + "M";
+  return "$" + Math.round(v).toLocaleString();
+};
+
+function stBuildPrefRows() {
+  const tbody = document.getElementById("st-pref-rows");
+  if (!tbody) return;
+  tbody.innerHTML = ST_SERIES.map((tk, i) => `
+    <tr>
+      <td><span class="tk">${tk}</span></td>
+      <td><input type="text" id="st-p-${i}-name" placeholder="名称" style="min-width:130px;"/></td>
+      <td class="r"><input type="number" id="st-p-${i}-shares" placeholder="股数" style="width:130px;text-align:right;" oninput="stRecalcDivs()"/></td>
+      <td class="r"><input type="number" id="st-p-${i}-rate" step="0.01" placeholder="%" style="width:80px;text-align:right;" oninput="stRecalcDivs()"/></td>
+      <td class="r num" id="st-p-${i}-div" style="color:var(--text-2);white-space:nowrap;">—</td>
+    </tr>`).join("");
+}
+
+// annual div per series = shares × $100 liq pref × rate%
+function stRecalcDivs() {
+  ST_SERIES.forEach((_, i) => {
+    const sh = parseFloat(document.getElementById(`st-p-${i}-shares`).value);
+    const rate = parseFloat(document.getElementById(`st-p-${i}-rate`).value);
+    const cell = document.getElementById(`st-p-${i}-div`);
+    cell.textContent = (isFinite(sh) && isFinite(rate)) ? stUSD(sh * 100 * (rate / 100)) : "—";
+  });
+}
+
+async function initStrategyForm() {
+  if (!document.getElementById("st-pref-rows")) return;
+  stBuildPrefRows();
+  const status = document.getElementById("st-load-status");
+  try {
+    const res = await fetch("data/strategy.json?v=" + Date.now());
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const d = await res.json();
+
+    const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+    set("st-updated", d.updated);
+    set("st-yield", d.btc_yield_ytd_pct);
+    set("st-holdings", d.btc && d.btc.holdings);
+    set("st-cost", d.btc && d.btc.cost_basis_avg);
+    set("st-shares-basic", d.shares_basic);
+    set("st-shares-diluted", d.shares_diluted);
+    const M = (v) => v != null ? +(v / 1e6).toFixed(1) : null;
+    set("st-debt", M(d.capital && d.capital.debt_usd));
+    set("st-pref-value", M(d.capital && d.capital.pref_value_usd));
+    set("st-reserve", M(d.reserves && d.reserves.usd_reserve_usd));
+    set("st-div-total", M(d.reserves && d.reserves.annual_dividends_total_usd));
+    set("st-strc-div", M(d.reserves && d.reserves.strc_annual_div_usd));
+
+    (d.preferreds || []).forEach((p) => {
+      const i = ST_SERIES.indexOf(p.ticker);
+      if (i < 0) return;
+      set(`st-p-${i}-name`, p.name);
+      set(`st-p-${i}-shares`, p.shares);
+      const rate = parseFloat(String(p.coupon).replace(/[^\d.]/g, ""));
+      if (isFinite(rate)) set(`st-p-${i}-rate`, rate);
+    });
+    stRecalcDivs();
+
+    const k = d.latest_8k || {};
+    set("st-8k-date", k.date);
+    set("st-8k-strc", M(k.strc_issued_week_usd));
+    set("st-8k-btcweek", k.btc_bought_week);
+    set("st-8k-btcusd", M(k.btc_bought_usd));
+
+    if (status) status.innerHTML = `✓ 已载入当前 <code>strategy.json</code>（${d.updated || "?"}）— 只需修改变化的字段。带 <strong>$M</strong> 的字段以<strong>百万美元</strong>为单位。`;
+  } catch (err) {
+    if (status) status.innerHTML = `⚠️ 无法载入当前 strategy.json（${err.message}）— 请完整填写。带 <strong>$M</strong> 的字段以<strong>百万美元</strong>为单位。`;
+  }
+}
+
+function generateStrategyJson() {
+  const num = (id) => { const v = parseFloat(document.getElementById(id).value); return isFinite(v) ? v : null; };
+  const str = (id) => document.getElementById(id).value.trim();
+  const fromM = (id) => { const v = num(id); return v != null ? Math.round(v * 1e6) : null; };
+
+  const updated = str("st-updated");
+  const holdings = num("st-holdings");
+  if (!updated || holdings == null) { alert("请填写数据日期与 BTC 持仓"); return; }
+
+  const preferreds = ST_SERIES.map((tk, i) => {
+    const shares = num(`st-p-${i}-shares`) || 0;
+    const rate = num(`st-p-${i}-rate`);
+    return {
+      ticker: tk,
+      name: str(`st-p-${i}-name`) || tk,
+      shares: shares,
+      coupon: rate != null ? rate.toFixed(2) + "%" : "—",
+      liq_pref: 100,
+      annual_div_usd: rate != null ? Math.round(shares * 100 * (rate / 100)) : 0,
+    };
+  });
+
+  const entry = {
+    updated: updated,
+    btc: { holdings: holdings, cost_basis_avg: num("st-cost") },
+    shares_basic: num("st-shares-basic"),
+    shares_diluted: num("st-shares-diluted"),
+    btc_yield_ytd_pct: num("st-yield"),
+    capital: { debt_usd: fromM("st-debt"), pref_value_usd: fromM("st-pref-value") },
+    reserves: {
+      usd_reserve_usd: fromM("st-reserve"),
+      annual_dividends_total_usd: fromM("st-div-total"),
+      strc_annual_div_usd: fromM("st-strc-div"),
+    },
+    preferreds: preferreds,
+    latest_8k: {
+      date: str("st-8k-date") || updated,
+      strc_issued_week_usd: fromM("st-8k-strc") || 0,
+      btc_bought_week: num("st-8k-btcweek") || 0,
+      btc_bought_usd: fromM("st-8k-btcusd") || 0,
+      btc_cumulative: holdings,
+    },
+  };
+
+  document.getElementById("st-json-output").value = JSON.stringify(entry, null, 2);
+}
+
+function copyStrategyJson() {
+  copyFromTextarea("st-json-output", "st-copy-btn");
+}

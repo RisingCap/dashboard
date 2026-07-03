@@ -2,6 +2,8 @@
 // Key stays server-side via process.env.TWELVEDATA_API_KEY.
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
+  // Daily candles change once a day — cache 30 min at the edge.
+  res.setHeader('Cache-Control', 's-maxage=1800, stale-while-revalidate=3600');
   try {
     const key = process.env.TWELVEDATA_API_KEY;
     if (!key) return res.status(500).json({ error: 'missing TWELVEDATA_API_KEY' });

@@ -2,6 +2,8 @@
 // API key stays server-side via process.env.SOSOVALUE_API_KEY
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
+  // ETF metrics update once per trading day — cache 15 min at the edge.
+  res.setHeader('Cache-Control', 's-maxage=900, stale-while-revalidate=1800');
   try {
     const response = await fetch('https://api.sosovalue.xyz/openapi/v2/etf/currentEtfDataMetrics', {
       method: 'POST',
