@@ -1173,9 +1173,30 @@ function buildNav() {
     btn.addEventListener("click", () => setActive(btn.dataset.id)));
 }
 
-function buildTicker() {
+// Ticker items come from the latest posts (title + verdict); mock only as fallback.
+async function buildTicker() {
+  let items = DASH.news;
+  try {
+    const res = await fetch("data/posts.json?v=" + Date.now());
+    if (res.ok) {
+      const posts = await res.json();
+      if (Array.isArray(posts) && posts.length) {
+        posts.sort((a, b) => b.date.localeCompare(a.date));
+        items = posts.slice(0, 8).map((p) => {
+          const firstBullet = (p.bullets && p.bullets[0]) || "";
+          const title = (p.title && p.title !== "BTC市场参与者日报") ? p.title : firstBullet.slice(0, 42);
+          return {
+            tag: tagForBullet(p.title + " " + firstBullet),
+            time: p.date.slice(5),
+            tone: verdictMeta(p.verdict).tone,
+            text: title,
+          };
+        });
+      }
+    }
+  } catch (_) {}
   const dotFor = (tone) => TONE[tone] || TONE.neutral;
-  const row = (k) => DASH.news.map((n, i) =>
+  const row = (k) => items.map((n, i) =>
     `<div class="ticker-item" key="${k}${i}"><span class="t-dot" style="background:${dotFor(n.tone)}"></span><span class="t-tag">${esc(n.tag)}</span><span class="t-text">${esc(n.text)}</span><span class="t-time">${esc(n.time)}</span></div>`).join("");
   document.getElementById("ticker").innerHTML = row("a") + row("b");
 }

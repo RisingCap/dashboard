@@ -407,3 +407,82 @@ function generateStrategyJson() {
 function copyStrategyJson() {
   copyFromTextarea("st-json-output", "st-copy-btn");
 }
+
+// ══════════════════════════════════════════════════════
+//  Direct save → /api/save-file → GitHub commit → Vercel deploy
+//  Works on the deployed admin page (needs the /api functions);
+//  on the local python server it falls back with a clear message.
+// ══════════════════════════════════════════════════════
+
+function adminPassword(forceAsk) {
+  let pw = localStorage.getItem("htx-admin-pw");
+  if (!pw || forceAsk) {
+    pw = prompt("管理密码（仅首次输入，之后记住在本浏览器）：");
+    if (pw) localStorage.setItem("htx-admin-pw", pw);
+  }
+  return pw;
+}
+
+async function saveToSite(path, content, btn, message) {
+  const pw = adminPassword(false);
+  if (!pw) return;
+  const orig = btn.textContent;
+  btn.textContent = "保存中…";
+  btn.disabled = true;
+  try {
+    const res = await fetch("/api/save-file", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: pw, path, content, message }),
+    });
+    let j = {};
+    try { j = await res.json(); } catch (_) {}
+    if (res.status === 401) {
+      localStorage.removeItem("htx-admin-pw");
+      throw new Error("密码错误，请重试（将重新询问）");
+    }
+    if (!res.ok) throw new Error(j.error || ("HTTP " + res.status));
+    btn.textContent = "已保存 ✓ 部署中 (~1分钟)";
+    btn.style.background = "rgba(22,163,74,0.2)";
+    setTimeout(() => { btn.textContent = orig; btn.style.background = ""; btn.disabled = false; }, 5000);
+  } catch (err) {
+    btn.textContent = orig;
+    btn.disabled = false;
+    const hint = location.hostname === "localhost" || location.hostname === "127.0.0.1"
+      ? "\n\n提示：本地 python 服务器没有 /api，直接保存只在部署后的 admin 页面可用（https://你的域名/admin.html）。本地请继续用「复制」。"
+      : "";
+    alert("保存失败：" + err.message + hint);
+  }
+}
+
+// posts.json — prepend the generated entry (replacing same-id entry if it exists)
+async function savePostToSite(btn) {
+  const out = document.getElementById("json-output").value.trim();
+  if (!out) { alert("请先点击「生成 JSON 条目」"); return; }
+  let entry;
+  try { entry = JSON.parse(out); } catch (e) { alert("生成的 JSON 无效：" + e.message); return; }
+  let posts;
+  try {
+    const res = await fetch("data/posts.json?v=" + Date.now());
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    posts = await res.json();
+    if (!Array.isArray(posts)) throw new Error("posts.json 不是数组");
+  } catch (e) { alert("无法读取当前 posts.json：" + e.message); return; }
+  const filtered = posts.filter((p) => p.id !== entry.id);
+  const replaced = filtered.length !== posts.length;
+  filtered.unshift(entry);
+  if (replaced && !confirm(`已存在 ${entry.id} 的日报，保存将覆盖它。继续？`)) return;
+  await saveToSite("data/posts.json", JSON.stringify(filtered, null, 2), btn, `admin: post ${entry.id}`);
+}
+
+async function saveBriefToSite(btn) {
+  const out = document.getElementById("brief-json-output").value.trim();
+  if (!out) { alert("请先点击「生成 market_brief.json」"); return; }
+  await saveToSite("data/market_brief.json", out, btn, "admin: update market brief");
+}
+
+async function saveStrategyToSite(btn) {
+  const out = document.getElementById("st-json-output").value.trim();
+  if (!out) { alert("请先点击「生成 strategy.json」"); return; }
+  await saveToSite("data/strategy.json", out, btn, "admin: update strategy fundamentals");
+}

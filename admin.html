@@ -79,6 +79,7 @@
       <h2><span class="badge-num">4</span> 生成日报条目 <span class="file-pill">posts.json</span></h2>
       <div class="admin-actions" style="margin-bottom:16px;">
         <button type="button" class="btn-primary" onclick="generateJSON()">生成 JSON 条目</button>
+        <button type="button" class="btn-secondary" onclick="savePostToSite(this)">🚀 保存到网站</button>
       </div>
       <div class="json-output-wrap">
         <textarea id="json-output" class="json-output" readonly placeholder='{ "id": "...", "date": "...", ... }'></textarea>
@@ -130,6 +131,7 @@
       </div>
       <div class="admin-actions" style="margin-bottom:14px;">
         <button type="button" class="btn-primary" onclick="generateBriefJson()">生成 market_brief.json</button>
+        <button type="button" class="btn-secondary" onclick="saveBriefToSite(this)">🚀 保存到网站</button>
       </div>
       <div class="json-output-wrap">
         <textarea id="brief-json-output" class="json-output" readonly placeholder='{ "date": "...", "state_label": "...", ... }'></textarea>
@@ -188,6 +190,7 @@
 
       <div class="admin-actions" style="margin:16px 0 14px;">
         <button type="button" class="btn-primary" onclick="generateStrategyJson()">生成 strategy.json</button>
+        <button type="button" class="btn-secondary" onclick="saveStrategyToSite(this)">🚀 保存到网站</button>
       </div>
       <div class="json-output-wrap">
         <textarea id="st-json-output" class="json-output" readonly placeholder='{ "updated": "...", "btc": { ... }, ... }'></textarea>

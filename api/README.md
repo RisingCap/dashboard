@@ -14,6 +14,21 @@ and never reaches the client.
 | `etf-metrics.js`  | `/api/etf-metrics`  | `…/openapi/v2/etf/currentEtfDataMetrics` (current snapshot) |
 | `etf-history.js`  | `/api/etf-history`  | `…/openapi/v2/etf/historicalInflowChart` (daily history)    |
 
+## Direct-save (`save-file.js`)
+
+`/api/save-file` lets the admin page commit `data/*.json` straight to GitHub
+(which auto-triggers a Vercel deploy). Requires three more env vars in
+Vercel → Project → Settings → Environment Variables:
+
+| Var | Value |
+|---|---|
+| `ADMIN_PASSWORD` | any password you choose — the admin page asks for it once |
+| `GITHUB_TOKEN`   | fine-grained PAT: github.com → Settings → Developer settings → Fine-grained tokens → scope it to this repo with **Contents: Read and write** |
+| `GITHUB_REPO`    | e.g. `RisingCap/dashboard` |
+
+Only `data/posts.json`, `data/market_brief.json`, `data/strategy.json` can be
+written, and content must be valid JSON — enforced server-side.
+
 ## Local development
 
 These functions do **not** run under the plain `python -m http.server` preview.
