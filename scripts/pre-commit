@@ -1,0 +1,39 @@
+#!/bin/sh
+# Pre-commit guard: block the commit if any data/*.json is invalid.
+# This catches the full-width comma (，) problem before it reaches Vercel.
+# Installed at .git/hooks/pre-commit — if hooks are ever lost (fresh clone),
+# reinstall with:  cp scripts/pre-commit .git/hooks/pre-commit
+
+python - <<'PYEOF'
+import json, glob, sys
+
+bad = []
+for f in glob.glob("data/*.json"):
+    try:
+        json.load(open(f, encoding="utf-8"))
+    except Exception as e:
+        bad.append((f, str(e)))
+
+if bad:
+    print("")
+    print("=" * 56)
+    print("COMMIT BLOCKED - invalid JSON detected:")
+    for f, e in bad:
+        print("")
+        print("  file : " + f)
+        print("  error: " + e)
+        # hint at the classic culprit: Chinese full-width punctuation used structurally
+        try:
+            for i, line in enumerate(open(f, encoding="utf-8"), 1):
+                s = line.strip()
+                if s in ("，", "}，", "]，") or s.endswith("}，") or s.endswith("]，"):
+                    print("  hint : line %d has a Chinese full-width comma - replace with ," % i)
+        except Exception:
+            pass
+    print("")
+    print("Fix the file(s) above, then commit again.")
+    print("=" * 56)
+    sys.exit(1)
+
+print("pre-commit: data/*.json all valid")
+PYEOF

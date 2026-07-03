@@ -414,6 +414,7 @@ async function loadETF() {
   let metrics = null, history = null;
   try { const r = await fetch("/api/etf-metrics"); if (r.ok) { const j = await r.json(); metrics = (j && j.data) || j; } } catch (_) {}
   try { const r = await fetch("/api/etf-history"); if (r.ok) { const j = await r.json(); history = (j && j.data) || j; } } catch (_) {}
+  setHealth("sosovalue", !!(metrics && metrics.list));
   return { metrics, history };
 }
 
@@ -599,6 +600,7 @@ async function loadStrategy() {
   try { const r = await fetch("data/strategy.json?v=" + Date.now()); if (r.ok) fund = await r.json(); } catch (_) {}
   try { const r = await fetch("/api/mstr-quote"); if (r.ok) quote = await r.json(); } catch (_) {}
   try { const r = await fetch("/api/mstr-history"); if (r.ok) history = await r.json(); } catch (_) {}
+  setHealth("twelvedata", !!(quote && quote.MSTR && quote.MSTR.close));
   btc = await fetchBTCPrice();
   try { const r = await fetch("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=160"); if (r.ok) btcKlines = await r.json(); } catch (_) {}
   return { fund, quote, history, btc, btcKlines };
@@ -767,7 +769,8 @@ async function loadDeriv() {
     const end = Date.now(), start = end - 2 * 864e5;
     const r = await fetch(`https://www.deribit.com/api/v2/public/get_volatility_index_data?currency=BTC&start_timestamp=${start}&end_timestamp=${end}&resolution=3600`);
     if (r.ok) { const j = await r.json(); const dt = j.result && j.result.data; if (dt && dt.length) o.iv = dt[dt.length - 1][4]; }
-  } catch (_) {}
+    setHealth("deribit", o.iv != null);
+  } catch (_) { setHealth("deribit", false); }
   // Spot CVD — cumulative taker buy−sell from Binance spot klines (4h × 180 ≈ 30d)
   try {
     const r = await fetch("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=4h&limit=180");
@@ -846,7 +849,8 @@ async function loadMiner() {
     if (r.ok) { const d = await r.json(); o.curHash = d.currentHashrate; o.hashEH = d.currentHashrate / 1e18;
       o.hashSeries = (d.hashrates || []).map((x) => x.avgHashrate / 1e18);
       o.hashDays = (d.hashrates || []).map((x) => new Date(x.timestamp * 1000).toISOString().slice(5, 10)); }
-  } catch (_) {}
+    setHealth("mempool", o.hashEH != null);
+  } catch (_) { setHealth("mempool", false); }
   try { const r = await fetch("https://mempool.space/api/v1/difficulty-adjustment"); if (r.ok) { const d = await r.json(); o.diffChange = d.difficultyChange; o.retargetDate = d.estimatedRetargetDate; } } catch (_) {}
   try { const r = await fetch("https://mempool.space/api/v1/mining/reward-stats/144"); if (r.ok) { const d = await r.json(); o.dailyRevBTC = parseFloat(d.totalReward) / 1e8; } } catch (_) {}
   const btc = await fetchBTCPrice(); o.btcPrice = btc ? btc.price : null;
@@ -937,6 +941,7 @@ async function loadOnchain() {
   const [mvrv, sopr, nupl, rp] = await Promise.all([
     bdSeries("mvrv-zscore"), bdSeries("sopr"), bdSeries("nupl"), bdSeries("realized-price"),
   ]);
+  setHealth("bgeometrics", !!(mvrv || sopr || nupl || rp));
   const btc = await fetchBTCPrice();
   return { mvrv, sopr, nupl, rp, btcPrice: btc ? btc.price : null };
 }
@@ -1194,8 +1199,9 @@ async function fetchBTCPrice() {
     const res = await fetch("https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT");
     if (!res.ok) throw 0;
     const d = await res.json();
+    setHealth("binance", true);
     return { price: parseFloat(d.lastPrice), change_pct: parseFloat(d.priceChangePercent) };
-  } catch (_) {}
+  } catch (_) { setHealth("binance", false); }
   try {
     const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true");
     if (!res.ok) throw 0;
@@ -1217,6 +1223,44 @@ function renderBTCChip(data) {
 async function initBTCChip() {
   renderBTCChip(await fetchBTCPrice());
   setInterval(async () => renderBTCChip(await fetchBTCPrice()), 30_000);
+}
+
+// ── data-source health ────────────────────────────────
+// Green = last fetch ok · red = failed · grey = not yet checked.
+// Free public sources are pinged at boot; keyed sources (SoSoValue,
+// Twelve Data) update passively when their tab loads, to save quota.
+const HEALTH = {
+  binance:     { label: "Binance",       status: "unknown" },
+  deribit:     { label: "Deribit",       status: "unknown" },
+  mempool:     { label: "mempool.space", status: "unknown" },
+  bgeometrics: { label: "BGeometrics",   status: "unknown" },
+  sosovalue:   { label: "SoSoValue",     status: "unknown" },
+  twelvedata:  { label: "Twelve Data",   status: "unknown" },
+};
+function setHealth(id, ok) {
+  const h = HEALTH[id];
+  if (!h) return;
+  const next = ok ? "ok" : "fail";
+  if (h.status === next) return;
+  h.status = next;
+  renderHealth();
+}
+function renderHealth() {
+  const el = document.getElementById("health-strip");
+  if (!el) return;
+  const dot = { ok: "var(--pos)", fail: "var(--neg)", unknown: "var(--text-3)" };
+  const tip = { ok: "正常", fail: "获取失败", unknown: "未检测 · 打开对应页面后更新" };
+  el.innerHTML = `<span style="font-weight:600">数据源</span>` +
+    Object.values(HEALTH).map((h) =>
+      `<span class="hs-item" title="${h.label} · ${tip[h.status]}"><span class="hs-dot" style="background:${dot[h.status]};${h.status === "unknown" ? "opacity:.45" : ""}"></span>${h.label}</span>`
+    ).join("");
+}
+async function initHealth() {
+  renderHealth();
+  // light pings for the free public sources (Binance is covered by the BTC chip)
+  try { const r = await fetch("https://mempool.space/api/v1/difficulty-adjustment"); setHealth("mempool", r.ok); } catch (_) { setHealth("mempool", false); }
+  try { const r = await fetch("https://bitcoin-data.com/v1/sopr/last"); setHealth("bgeometrics", r.ok); } catch (_) { setHealth("bgeometrics", false); }
+  try { const r = await fetch("https://www.deribit.com/api/v2/public/test"); setHealth("deribit", r.ok); } catch (_) { setHealth("deribit", false); }
 }
 
 // ── theme toggle ──────────────────────────────────────
@@ -1296,6 +1340,7 @@ document.addEventListener("DOMContentLoaded", () => {
   buildNav();
   buildTicker();
   initBTCChip();
+  initHealth();
   document.getElementById("brand-home").addEventListener("click", (e) => { e.preventDefault(); setActive("report"); });
   setActive("report");
 });
