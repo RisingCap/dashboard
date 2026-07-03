@@ -174,6 +174,31 @@ function nicePath(values, w, h, pad) {
   return { d, pts };
 }
 
+// Wrap a chart with real HTML axes (SVG text would distort under
+// preserveAspectRatio="none"). yTicks = [{y(px), label}]; xLabels shown
+// first / middle / last under the plot.
+function withAxes(inner, height, yTicks, xLabels) {
+  const ys = yTicks.map((t) =>
+    `<span style="top:${t.y}px">${esc(t.label)}</span>`).join("");
+  const xs = (xLabels && xLabels.length)
+    ? `<div class="ax-x num">${xLabels.map((l) => `<span>${esc(l)}</span>`).join("")}</div>` : "";
+  return `<div class="chart-axes">
+    <div class="ax-y num" style="height:${height}px">${ys}</div>
+    <div class="ax-body">${inner}${xs}</div>
+  </div>`;
+}
+function axisTicks(min, max, h, pad, fmt, n = 4) {
+  const span = (max - min) || 1;
+  return Array.from({ length: n }, (_, i) => ({
+    y: pad + (i / (n - 1)) * (h - pad * 2),
+    label: fmt(max - (i / (n - 1)) * span),
+  }));
+}
+function axisDates(labels) {
+  if (!labels || !labels.length) return null;
+  return [labels[0], labels[Math.floor(labels.length / 2)], labels[labels.length - 1]];
+}
+
 function areaChart(values, height = 200, color = "var(--accent)", meta = null) {
   const w = VB_W, h = height, pad = 14;
   const { d, pts } = nicePath(values, w, h, pad);
@@ -195,7 +220,10 @@ function areaChart(values, height = 200, color = "var(--accent)", meta = null) {
     <circle cx="${last[0]}" cy="${last[1]}" r="3.5" fill="${color}"/>
     <circle cx="${last[0]}" cy="${last[1]}" r="6.5" fill="none" stroke="${color}" stroke-width="1.5" opacity="0.4"/>
   </svg>`;
-  return hitWrap(svg, values, meta);
+  const hit = hitWrap(svg, values, meta);
+  if (!meta || !meta.format) return hit;
+  const min = Math.min(...values), max = Math.max(...values);
+  return withAxes(hit, height, axisTicks(min, max, h, pad, meta.format), axisDates(meta.labels));
 }
 
 function flowBars(values, height = 200, color = "var(--accent)", neg = "var(--neg)", meta = null) {
@@ -211,7 +239,15 @@ function flowBars(values, height = 200, color = "var(--accent)", neg = "var(--ne
   });
   const svg = `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${height}" preserveAspectRatio="none" style="display:block">
     <line x1="0" y1="${zeroY}" x2="${w}" y2="${zeroY}" stroke="var(--border-strong)" stroke-width="1"/>${bars}</svg>`;
-  return hitWrap(svg, values, meta);
+  const hit = hitWrap(svg, values, meta);
+  if (!meta || !meta.format) return hit;
+  // diverging scale: +max at the top edge, 0 at center, −max at the bottom
+  const yTicks = [
+    { y: pad, label: meta.format(max) },
+    { y: h / 2, label: meta.format(0) },
+    { y: h - pad, label: meta.format(-max) },
+  ];
+  return withAxes(hit, height, yTicks, axisDates(meta.labels));
 }
 
 function lineChart(values, values2, height = 200, color = "var(--accent)", color2 = "var(--text-3)", meta = null) {
@@ -236,7 +272,9 @@ function lineChart(values, values2, height = 200, color = "var(--accent)", color
     ${b ? `<path d="${b.d}" fill="none" stroke="${color2}" stroke-width="1.6" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"/>` : ""}
     <path d="${a.d}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
     <circle cx="${a.last[0]}" cy="${a.last[1]}" r="3.5" fill="${color}"/></svg>`;
-  return hitWrap(svg, values, meta);
+  const hit = hitWrap(svg, values, meta);
+  if (!meta || !meta.format) return hit;
+  return withAxes(hit, height, axisTicks(min, max, h, pad, meta.format), axisDates(meta.labels));
 }
 
 function sparkline(values, color = "var(--accent)", height = 36, width = 110) {
@@ -515,7 +553,7 @@ async function renderETF() {
   const flowPanel = panel({
     title: "净流入 / 流出", sub: "单位：百万美元 (USD M) · 近 30 日", className: "span-2 fade",
     right: `<div class="legend">${legendKey("var(--accent)", "净流入")}${legendKey("var(--neg)", "净流出")}</div>`,
-    body: flowBars(hist.netFlow, 220, "var(--accent)", "var(--neg)", flowMeta) + `<div class="num" style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--text-3)"><span>${esc(hist.days[0] || "")}</span><span>${esc(hist.days[Math.floor(hist.days.length / 2)] || "")}</span><span>${esc(hist.days[hist.days.length - 1] || "")}</span></div>`,
+    body: flowBars(hist.netFlow, 220, "var(--accent)", "var(--neg)", flowMeta),
   });
   const donutPanel = panel({
     title: "持仓份额", sub: "按 AUM · Top 5", className: "fade",
@@ -1080,28 +1118,16 @@ async function renderReport() {
       </div>
     </div></div>`;
 
-  // ARTICLE — agora figure (top) → key points (bulleted) → the post's real charts
-  const pointsHTML = bodyBullets.map((b) => `<li>${esc(b)}</li>`).join("");
-  const charts = (L.charts || []).filter((c) => c.filename);
-  const chartFigs = charts.length ? `<div class="article-charts">${charts.map((c) => {
-    const src = CHARTS_BASE + c.filename;
-    return `<figure style="margin:0"><img src="${esc(src)}" alt="${esc(c.caption || "")}" loading="lazy" onclick="openLightbox('${esc(src)}')" onerror="this.style.display='none'"/>${c.caption || c.source ? `<div class="cap">${esc([c.caption, c.source].filter(Boolean).join(" · "))}</div>` : ""}</figure>`;
-  }).join("")}</div>` : "";
-
-  const articleBody = `<article class="article">
-    <div class="article-figure" style="margin-top:0"><div class="fig-art">${agoraStill()}</div>
-      <span class="fig-cap">图 · 五类市场参与者如集市中的摊主——ETF、机构、长期持有者、矿工与衍生品交易者各自定价、彼此博弈</span></div>
-    ${pointsHTML ? `<ul class="article-points">${pointsHTML}</ul>` : ""}
-    ${chartFigs}
-  </article>`;
-  const articlePanel = `<div id="market-summary" class="span-2">` + panel({ title: "市场综述", sub: `${L.date} · No. ${issueNo}`, className: "fade", body: articleBody }) + `</div>`;
+  // ARTICLE — shared builder so history clicks can swap in past reports
+  window._reportState = { posts, issueNo, latestId: L.id, latestBullets: bodyBullets };
+  const articlePanel = `<div id="market-summary" class="span-2">` + buildArticlePanel(L, issueNo, true, bodyBullets) + `</div>`;
 
   // HISTORY
   const histItems = rest.map((h, i) => {
     const m = verdictMeta(h.verdict);
     const title = h.title && h.title !== "BTC市场参与者日报" ? h.title : (h.bullets && h.bullets[0] ? h.bullets[0].slice(0, 40) : "BTC 市场参与者日报");
     const tags = [tagForBullet((h.bullets && h.bullets[0]) || ""), h.verdict].filter(Boolean);
-    return `<a class="hist-item" onclick="return false">
+    return `<a class="hist-item" data-pid="${esc(h.id)}" href="#">
       <div class="hist-date num">${esc(h.date.slice(5))}</div>
       <div class="hist-main"><div class="hist-title">${esc(title)}</div>
         <div class="hist-tags">${tags.map((t) => `<span class="t-tag">${esc(t)}</span>`).join("")}<span class="hist-issue mono">No.${issueNo - 1 - i}</span></div></div>
@@ -1148,7 +1174,49 @@ async function renderReport() {
     hero +
     `<div class="grid cols-3" style="margin-top:var(--gap)">${articlePanel}${sidebar}</div>` +
     source("编辑部综合 · SoSoValue / CoinGlass / Glassnode");
+
+  // history items → swap the article panel to that day's report
+  document.querySelectorAll("#report-body .hist-item").forEach((el) =>
+    el.addEventListener("click", (e) => { e.preventDefault(); showReportPost(el.dataset.pid); }));
 }
+
+// Build the 市场综述 panel for any post. Latest gets the agora figure;
+// historical posts get their title as a heading and a back link instead.
+function buildArticlePanel(post, issue, isLatest, bulletsOverride) {
+  const bullets = bulletsOverride || post.bullets || [];
+  const pointsHTML = bullets.map((b) => `<li>${esc(b)}</li>`).join("");
+  const charts = (post.charts || []).filter((c) => c.filename);
+  const chartFigs = charts.length ? `<div class="article-charts">${charts.map((c) => {
+    const src = CHARTS_BASE + c.filename;
+    return `<figure style="margin:0"><img src="${esc(src)}" alt="${esc(c.caption || "")}" loading="lazy" onclick="openLightbox('${esc(src)}')" onerror="this.style.display='none'"/>${c.caption || c.source ? `<div class="cap">${esc([c.caption, c.source].filter(Boolean).join(" · "))}</div>` : ""}</figure>`;
+  }).join("")}</div>` : "";
+
+  const heading = (!isLatest && post.title && post.title !== "BTC市场参与者日报")
+    ? `<h3 style="margin:0 0 14px;font-size:17px;line-height:1.4;color:var(--text)">${esc(post.title)}</h3>` : "";
+  const figure = isLatest
+    ? `<div class="article-figure" style="margin-top:0"><div class="fig-art">${agoraStill()}</div>
+        <span class="fig-cap">图 · 五类市场参与者如集市中的摊主——ETF、机构、长期持有者、矿工与衍生品交易者各自定价、彼此博弈</span></div>` : "";
+  const body = `<article class="article">${figure}${heading}
+    ${pointsHTML ? `<ul class="article-points">${pointsHTML}</ul>` : ""}
+    ${chartFigs}</article>`;
+  const back = isLatest ? "" :
+    `<a href="#" onclick="showReportPost(window._reportState.latestId);return false" style="font-size:12px;color:var(--accent);font-weight:600;text-decoration:none;white-space:nowrap">← 返回最新</a>`;
+  return panel({ title: "市场综述", sub: `${post.date} · No. ${issue}`, className: "fade", right: back, body });
+}
+
+window.showReportPost = function (id) {
+  const st = window._reportState;
+  if (!st) return;
+  const idx = st.posts.findIndex((p) => p.id === id);
+  if (idx < 0) return;
+  const isLatest = idx === 0;
+  const ms = document.getElementById("market-summary");
+  if (!ms) return;
+  ms.innerHTML = buildArticlePanel(st.posts[idx], st.issueNo - idx, isLatest, isLatest ? st.latestBullets : null);
+  document.querySelectorAll("#report-body .hist-item").forEach((el) =>
+    el.classList.toggle("active", el.dataset.pid === id && !isLatest));
+  ms.scrollIntoView({ behavior: "smooth", block: "start" });
+};
 
 // =====================================================
 //  SHELL: nav, ticker, theme, routing
