@@ -484,43 +484,76 @@ function mapETFMetrics(m) {
   };
 }
 
-// Normalise history payload → { days[], netFlow[], cumulative[] } (millions).
-// SoSoValue's historicalInflowChart shape is mapped defensively across field names.
-function mapETFHistory(h) {
+// Normalise history payload → raw daily rows [{full: "YYYY-MM-DD", inflow(M)}], oldest-first.
+function mapETFRows(h) {
   const arr = Array.isArray(h) ? h : (h && (h.list || h.data)) || [];
   if (!arr.length) return null;
   const rows = arr.map((r) => ({
     full: (sv(r.date) || sv(r.dataDate) || sv(r.day) || "").toString(),
     inflow: nf(r.totalNetInflow != null ? r.totalNetInflow : (r.netInflow != null ? r.netInflow : (r.dailyNetInflow != null ? r.dailyNetInflow : r.value))) / 1e6,
   })).filter((r) => r.full);
-  // sort by FULL ISO date so slice(-30) is the most-recent 30 days (not MM-DD lexical)
   rows.sort((a, b) => a.full.localeCompare(b.full));
-  const last = rows.slice(-30);
+  return rows;
+}
+
+// Aggregate daily rows for the 日/周/月 toggle.
+// 日 = last 30 days · 周 = weekly sums (last 26, keyed by Monday) · 月 = monthly sums (last 18)
+function aggETF(rows, tf) {
+  let out;
+  if (tf === "周") {
+    const buckets = new Map();
+    rows.forEach((r) => {
+      const dt = new Date(r.full + "T00:00:00Z");
+      dt.setUTCDate(dt.getUTCDate() - ((dt.getUTCDay() + 6) % 7)); // back to Monday
+      const key = dt.toISOString().slice(0, 10);
+      buckets.set(key, (buckets.get(key) || 0) + r.inflow);
+    });
+    out = [...buckets.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-26)
+      .map(([k, v]) => ({ label: k.slice(5), inflow: v }));
+  } else if (tf === "月") {
+    const buckets = new Map();
+    rows.forEach((r) => {
+      const key = r.full.slice(0, 7);
+      buckets.set(key, (buckets.get(key) || 0) + r.inflow);
+    });
+    out = [...buckets.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-18)
+      .map(([k, v]) => ({ label: k.slice(2), inflow: v }));
+  } else {
+    out = rows.slice(-30).map((r) => ({ label: r.full.slice(5), inflow: r.inflow }));
+  }
   let run = 0;
   return {
-    days: last.map((r) => r.full.slice(5)),
-    netFlow: last.map((r) => r.inflow),
-    cumulative: last.map((r) => (run += r.inflow)), // 30-day running sum of net flow
+    days: out.map((x) => x.label),
+    netFlow: out.map((x) => x.inflow),
+    cumulative: out.map((x) => (run += x.inflow)),
   };
 }
 
+const ETF_TF_SUBS = {
+  "日": { flow: "单位：百万美元 (USD M) · 近 30 日", cum: "单位：百万美元 · 近 30 日累计" },
+  "周": { flow: "单位：百万美元 · 按周合计 · 近 26 周", cum: "单位：百万美元 · 近 26 周累计" },
+  "月": { flow: "单位：百万美元 · 按月合计 · 近 18 个月", cum: "单位：百万美元 · 全窗口累计" },
+};
+
+let _etfView = null; // cached data so the 日/周/月 toggle repaints without refetching
+
 async function renderETF() {
-  const head = sectionHeader({
+  const skeletonHead = sectionHeader({
     eyebrow: "Participant 01 · ETF Flows", title: "ETF 资金流向",
     sub: "追踪美国现货 BTC ETF 的每日申购赎回、累计净流入与各发行商持仓份额。", live: true,
     right: segMarkup(["日", "周", "月"], "日"),
   });
-  document.getElementById("view").innerHTML = head +
+  document.getElementById("view").innerHTML = skeletonHead +
     `<div class="grid cols-4" style="margin-bottom:var(--gap)">${[0, 1, 2, 3].map(() => `<div class="skeleton"></div>`).join("")}</div>
      <div class="grid cols-3"><div class="skeleton span-2" style="height:260px"></div><div class="skeleton" style="height:260px"></div></div>`;
 
   const { metrics, history } = await loadETF();
 
   // Fallback to mock if the live API is unavailable.
-  let d, live = true, hist = null;
+  let d, live = true, rows = null;
   if (metrics && metrics.list) {
     d = mapETFMetrics(metrics);
-    hist = history ? mapETFHistory(history) : null;
+    rows = history ? mapETFRows(history) : null;
   } else {
     live = false;
     const mk = DASH.etf;
@@ -529,9 +562,29 @@ async function renderETF() {
       totalAssets: 84.9e9, holdings: 1182400, pct: 0.0597,
       funds: mk.funds.map((f) => ({ ...f })),
     };
-    hist = { days: mk.days, netFlow: mk.netFlow, cumulative: mk.cumulative };
   }
-  if (!hist) hist = { days: DASH.etf.days, netFlow: DASH.etf.netFlow, cumulative: DASH.etf.cumulative };
+  const histLive = !!rows;
+  if (!rows) {
+    // synthesize dated rows from the mock series so the toggle still works
+    rows = DASH.etf.netFlow.map((v, i) => {
+      const dt = new Date(); dt.setDate(dt.getDate() - (DASH.etf.netFlow.length - 1 - i));
+      return { full: dt.toISOString().slice(0, 10), inflow: v };
+    });
+  }
+  _etfView = { d, rows, live, histLive };
+  paintETF("日");
+}
+
+function paintETF(tf) {
+  const { d, rows, live, histLive } = _etfView;
+  const hist = aggETF(rows, tf);
+  const subs = ETF_TF_SUBS[tf] || ETF_TF_SUBS["日"];
+
+  const head = sectionHeader({
+    eyebrow: "Participant 01 · ETF Flows", title: "ETF 资金流向",
+    sub: "追踪美国现货 BTC ETF 的每日申购赎回、累计净流入与各发行商持仓份额。", live: true,
+    right: segMarkup(["日", "周", "月"], tf),
+  });
 
   const palette = ["var(--accent)", "color-mix(in oklab,var(--accent) 70%,var(--text-3))",
     "color-mix(in oklab,var(--accent) 45%,var(--text-3))", "var(--text-3)", "var(--surface-3)"];
@@ -548,10 +601,10 @@ async function renderETF() {
   const cards = summary.map((s, i) => statCard(s, i, i === 0 && hist.netFlow ? hist.netFlow.slice(-12) : undefined)).join("");
 
   const liveOrMock = live ? "" : `<span class="live-pill muted" style="margin-left:8px">示例数据 · 实时不可用</span>`;
-  const histLive = (live && history) ? "" : `<span class="panel-sub" style="margin-left:8px">· 示例序列</span>`;
+  const histNote = histLive ? "" : " · 示例序列";
 
   const flowPanel = panel({
-    title: "净流入 / 流出", sub: "单位：百万美元 (USD M) · 近 30 日", className: "span-2 fade",
+    title: "净流入 / 流出", sub: subs.flow + histNote, className: "span-2 fade",
     right: `<div class="legend">${legendKey("var(--accent)", "净流入")}${legendKey("var(--neg)", "净流出")}</div>`,
     body: flowBars(hist.netFlow, 220, "var(--accent)", "var(--neg)", flowMeta),
   });
@@ -562,7 +615,7 @@ async function renderETF() {
       <div class="legend" style="margin-top:14px;flex-direction:column;gap:7px">${donutData.map((s) => `<span class="key" style="justify-content:space-between;width:100%"><span><span class="swatch" style="background:${s.color}"></span>${esc(s.label)}</span><span class="num" style="color:var(--text-3)">${usdAbbr(s.value * 1e6)}</span></span>`).join("")}</div>`,
   });
 
-  const cumPanel = panel({ title: "累计净流入趋势", sub: "单位：百万美元 · 近 30 日累计" + (histLive ? " · 示例序列" : ""), className: "fade", body: areaChart(hist.cumulative, 200, "var(--accent)", cumMeta) });
+  const cumPanel = panel({ title: "累计净流入趋势", sub: subs.cum + histNote, className: "fade", body: areaChart(hist.cumulative, 200, "var(--accent)", cumMeta) });
 
   const fundRows = d.funds.map((f) => `<tr>
     <td class="name">${esc(f.name)}</td>
@@ -576,12 +629,17 @@ async function renderETF() {
     body: `<table class="tbl"><thead><tr><th>基金</th><th>发行商</th><th class="r">日净流入</th><th class="r">AUM</th><th style="width:26%">份额</th><th class="r">状态</th></tr></thead><tbody>${fundRows}</tbody></table>`,
   });
 
-  document.getElementById("view").innerHTML = head +
+  const view = document.getElementById("view");
+  view.innerHTML = head +
     `<div class="grid cols-4" style="margin-bottom:var(--gap)">${cards}</div>
      <div class="grid cols-3" style="margin-bottom:var(--gap)">${flowPanel}${donutPanel}</div>
      ${cumPanel}<div style="height:var(--gap)"></div>${tablePanel}` +
     `<div class="source">数据来源：SoSoValue${liveOrMock}</div>`;
-  initChartHovers(document.getElementById("view"));
+
+  // 日/周/月 toggle → repaint from cached rows (no refetch)
+  view.querySelectorAll(".section-head .seg button").forEach((b) =>
+    b.addEventListener("click", () => { if (b.getAttribute("data-on") !== "true") paintETF(b.textContent); }));
+  initChartHovers(view);
 }
 
 // =====================================================
@@ -1166,7 +1224,8 @@ async function renderReport() {
         <div style="position:absolute;top:-9px;left:${vPointer}%;transform:translateX(-50%);width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid ${vTone}"></div>
         <div style="display:flex;gap:4px">${vSegs}</div>
       </div>
-      <div style="display:flex;gap:4px;font-size:10.5px;color:var(--text-3);text-align:center">${vLabs}</div>`,
+      <div style="display:flex;gap:4px;font-size:10.5px;color:var(--text-3);text-align:center">${vLabs}</div>
+      ${verdictTrendStrip(posts)}`,
   });
   const sidebar = `<div style="display:flex;flex-direction:column;gap:var(--gap)">${verdictPanel}${historyPanel}</div>`;
 
@@ -1202,6 +1261,31 @@ function buildArticlePanel(post, issue, isLatest, bulletsOverride) {
   const back = isLatest ? "" :
     `<a href="#" onclick="showReportPost(window._reportState.latestId);return false" style="font-size:12px;color:var(--accent);font-weight:600;text-decoration:none;white-space:nowrap">← 返回最新</a>`;
   return panel({ title: "市场综述", sub: `${post.date} · No. ${issue}`, className: "fade", right: back, body });
+}
+
+// 14-issue stance trend: one bar per report, oldest → newest.
+// Height = verdict level (1–5), color = tone; hover shows date + verdict.
+function verdictTrendStrip(posts) {
+  const lvlMap = { "极度看空": 1, "偏空": 2, "中性": 3, "偏多": 4, "极度看多": 5 };
+  const trend = posts.slice(0, 14).reverse();
+  if (trend.length < 2) return "";
+  const bars = trend.map((p, i) => {
+    const lvl = lvlMap[p.verdict] || 3;
+    const col = lvl <= 2 ? "var(--neg)" : lvl >= 4 ? "var(--pos)" : "var(--text-3)";
+    const hpx = 6 + (lvl - 1) * 5;
+    const isLast = i === trend.length - 1;
+    return `<span title="${esc(p.date.slice(5))} · ${esc(p.verdict)}" style="flex:1;max-width:16px;height:${hpx}px;border-radius:2px;background:${col};opacity:${isLast ? 1 : 0.55};cursor:default"></span>`;
+  }).join("");
+  return `<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-3);margin-bottom:8px">
+      <span>近 ${trend.length} 期立场</span>
+      <span class="num">${esc(trend[0].date.slice(5))} → ${esc(trend[trend.length - 1].date.slice(5))}</span>
+    </div>
+    <div style="display:flex;gap:3px;align-items:flex-end;height:26px">${bars}</div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-3);margin-top:6px">
+      <span>低 = 看空</span><span>高 = 看多</span>
+    </div>
+  </div>`;
 }
 
 window.showReportPost = function (id) {
